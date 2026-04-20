@@ -83,6 +83,7 @@ export default defineConfig({
           { text: '1. Qt 框架基础', link: '/guide/01-qt-basics' },
           { text: '6. Qt 核心机制', link: '/guide/06-qt-core' },
           { text: '9. Qt5 与 Qt6 区别', link: '/guide/09-qt5-qt6' },
+          { text: '43. Qt Quick / QML', link: '/guide/43-qt-qml' },
         ]
       },
       {
@@ -146,6 +147,8 @@ export default defineConfig({
           { text: '39. PID 控制', link: '/guide/39-pid' },
           { text: '40. C++ 与 C# 对比', link: '/guide/40-cpp-csharp' },
           { text: '41. Electron 跨平台对比', link: '/guide/41-electron' },
+          { text: '44. 调试与性能分析', link: '/guide/44-debugging-profiling' },
+          { text: '45. 跨平台桌面开发实践', link: '/guide/45-cross-platform' },
         ]
       },
     ],

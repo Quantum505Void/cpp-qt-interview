@@ -23,6 +23,7 @@
 | [C++ 核心基础](/guide/03-cpp-core) | 内存布局、虚函数表、继承 |
 | [多态与虚函数](/guide/04-polymorphism) | 多态原理、虚函数表结构 |
 | [virtual 关键字](/guide/05-virtual) | 纯虚函数、析构函数虚化 |
+| [Qt Quick / QML](/guide/43-qt-qml) | 声明式 UI、属性绑定、Scene Graph、列表虚拟化 |
 
 ---
 
@@ -56,6 +57,8 @@
 | [Qt5 与 Qt6 区别](/guide/09-qt5-qt6) | API 差异、迁移要点 |
 | [模板与泛型](/guide/20-templates) | SFINAE、类型萃取、concept |
 | [编译链接与 ABI](/guide/26-compile-link-abi) | 符号修饰、动态库 |
+| [调试与性能分析](/guide/44-debugging-profiling) | GDB、ASAN、perf、Heaptrack、死锁分析 |
+| [跨平台桌面开发实践](/guide/45-cross-platform) | 打包部署、高 DPI、字符编码、CI/CD |
 
 ---
 
@@ -134,7 +137,7 @@
 |------|------|
 | 1 周 | 重点刷 TOP 10 高频考点 |
 | 2 周 | 完整过 C++ 核心 + Qt 框架 |
-| 1 个月 | 全部 42 章系统覆盖 |
+| 1 个月 | 全部 45 章系统覆盖 |
 
 ---
 
