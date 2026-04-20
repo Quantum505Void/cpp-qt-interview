@@ -275,3 +275,182 @@ A: 结论：最大的陷阱不是 API 记不住，而是所有权模型说不清
 
 - “统一全用 `shared_ptr` 最安全”是非常典型的错误回答。
 - 追问：什么时候裸指针仍然合理？当它只表达非拥有关系时。
+
+
+### Q11: ⭐🟡 `std::unique_ptr` 的自定义删除器怎么用？有什么应用场景？
+
+
+A: 结论：`unique_ptr<T, Deleter>` 接受第二模板参数作为删除器类型，可用于管理非 `new` 分配的资源（如文件句柄、SDL_Surface、C API 资源），实现 RAII 统一管理。
+
+
+详细解释：
+
+
+- 函数指针删除器：`unique_ptr<FILE, decltype(&fclose)> f(fopen(...), &fclose);`
+- Lambda 删除器：`unique_ptr<T, decltype(deleter)> p(raw, deleter);`
+- 自定义 Functor：定义 `operator()` 的结构体，可携带额外状态。
+- 删除器存储在 `unique_ptr` 内部，空基类优化（EBO）可使无状态删除器不占用额外空间。
+
+
+代码示例：
+
+
+```cpp
+// 管理 C 文件句柄
+auto closer = [](FILE* f){ if (f) fclose(f); };
+std::unique_ptr<FILE, decltype(closer)> fp(fopen("test.txt", "r"), closer);
+
+// 管理 C API 资源
+struct SDLDeleter { void operator()(SDL_Surface* s) { SDL_FreeSurface(s); } };
+std::unique_ptr<SDL_Surface, SDLDeleter> surface(SDL_LoadBMP("img.bmp"));
+```
+
+
+常见坑/追问：
+
+
+- Lambda 删除器每个 lambda 是唯一类型，如果需要存入容器需用 `std::function`（有开销）。
+- 追问：`shared_ptr` 的删除器和 `unique_ptr` 有何不同？`shared_ptr` 删除器类型擦除，存在 control block 里，不影响 `shared_ptr<T>` 的类型；`unique_ptr` 删除器是类型的一部分。
+
+
+---
+
+
+### Q12: ⭐🔴 `std::shared_ptr` 的控制块（Control Block）里有什么？
+
+
+A: 结论：控制块包含引用计数（strong count）、弱引用计数（weak count）、删除器、分配器，以及可能的对象本身（`make_shared` 时合并分配）。
+
+
+详细解释：
+
+
+- **strong count**：`shared_ptr` 的数量；归零时调用删除器销毁对象。
+- **weak count**：`weak_ptr` 的数量 + 1（+1 是 strong count > 0 时的额外引用，防控制块提前释放）；归零时释放控制块内存。
+- `make_shared`：对象和控制块一次分配（一次 `new`），cache 友好；代价是对象不能提前释放（即使 strong count = 0，若 weak count > 0 内存不释放）。
+- `shared_ptr(new T)`：两次分配，但对象可提前释放。
+
+
+常见坑/追问：
+
+
+- `make_shared` 和大对象 + 长生命周期 `weak_ptr` 配合时会导致内存"迟释"，需权衡。
+- 追问：`enable_shared_from_this` 原理是什么？基类内部有 `weak_ptr<T> weak_this_`，`shared_from_this()` 通过它构造 `shared_ptr`，避免 double-delete。
+
+
+---
+
+
+### Q13: ⭐🟡 什么时候用 `std::weak_ptr`？它如何打破循环引用？
+
+
+A: 结论：`weak_ptr` 用于"观察"对象但不拥有它，不增加强引用计数；循环引用中将其中一方换成 `weak_ptr`，循环所有权链断裂，对象能正常销毁。
+
+
+详细解释：
+
+
+- 循环引用：A 持有 `shared_ptr<B>`，B 持有 `shared_ptr<A>`，两者 strong count 永远 ≥ 1，内存泄漏。
+- 解决：将 B 持有的改为 `weak_ptr<A>`；A 销毁时 B 持有的 weak_ptr 自动失效（`expired() == true`）。
+- `weak_ptr::lock()` 返回 `shared_ptr<T>`，若对象已销毁则返回 `nullptr`。
+- 缓存、观察者等"临时引用"场景天然适合 `weak_ptr`。
+
+
+代码示例：
+
+
+```cpp
+struct B;
+struct A {
+    std::shared_ptr<B> b;
+};
+struct B {
+    std::weak_ptr<A> a; // 打破循环
+};
+auto a = std::make_shared<A>();
+auto b = std::make_shared<B>();
+a->b = b; b->a = a;
+// 现在 a 和 b 都能正常析构
+```
+
+
+常见坑/追问：
+
+
+- `lock()` 得到的 `shared_ptr` 要及时使用，不要长时间持有，否则又变成循环。
+- 追问：`weak_ptr` 能用于多线程吗？`lock()` 是原子操作，线程安全；但得到 `shared_ptr` 后的操作不受额外保护。
+
+
+---
+
+
+### Q14: ⭐🔴 智能指针在多线程下是线程安全的吗？
+
+
+A: 结论：`shared_ptr` 的引用计数操作是原子的（线程安全），但对 `shared_ptr` 对象本身的读写（赋值、拷贝等）不是线程安全的；指向的对象的访问需要自行加锁。
+
+
+详细解释：
+
+
+- 安全：多个线程同时持有各自的 `shared_ptr` 副本（独立拷贝）→ 引用计数原子增减，没问题。
+- 不安全：多个线程同时对**同一个 `shared_ptr` 对象**（同一个变量）读写 → 数据竞争，UB。
+- 对象本身：`shared_ptr` 不提供任何指向对象的线程安全保障，需要 mutex 或原子操作。
+- C++20 `std::atomic<shared_ptr<T>>`：允许原子地替换 `shared_ptr`，安全跨线程共享指针变量。
+
+
+代码示例：
+
+
+```cpp
+// 安全：每个线程有自己的副本
+void thread_func(std::shared_ptr<Data> d) { // 按值传递，独立副本
+    d->process();
+}
+// 不安全：共享同一个 shared_ptr 变量
+std::shared_ptr<Data> shared;
+// thread1: shared = newData; thread2: auto d = shared; → 数据竞争！
+```
+
+
+常见坑/追问：
+
+
+- "引用计数是原子的所以线程安全"是非常常见的误解，安全的只是计数，不是指针本身。
+- 追问：如何跨线程安全地替换 `shared_ptr`？C++20 `std::atomic<shared_ptr<T>>` 或加 mutex 保护。
+
+
+---
+
+
+### Q15: ⭐🟡 `std::make_shared` 和 `std::shared_ptr<T>(new T)` 有什么区别？什么时候必须用后者？
+
+
+A: 结论：`make_shared` 一次分配对象和控制块（高效、异常安全），推荐优先使用；但需要自定义删除器、或对象大且有大量长生命周期 `weak_ptr` 时，用 `shared_ptr<T>(new T, deleter)` 更合适。
+
+
+详细解释：
+
+
+- `make_shared` 优势：一次内存分配，cache 友好，异常安全（无裸 `new`）。
+- `make_shared` 劣势：对象和控制块合并，strong count = 0 但 weak count > 0 时内存无法提前释放。
+- 必须用构造函数的情况：需要自定义删除器（`make_shared` 不支持）；需要 `private` 构造函数时（需 friend）；从裸指针接管所有权时。
+
+
+代码示例：
+
+
+```cpp
+// 需要自定义删除器，必须手动构造
+auto p = std::shared_ptr<FILE>(fopen("a.txt", "r"),
+                                [](FILE* f){ if(f) fclose(f); });
+// 一般情况优先用 make_shared
+auto obj = std::make_shared<MyClass>(arg1, arg2);
+```
+
+
+常见坑/追问：
+
+
+- `make_shared` 需要访问构造函数，`private` 构造时需要在类内声明 `friend`。
+- 追问：`std::allocate_shared` 是什么？允许指定自定义分配器（如内存池），适合高性能场景。

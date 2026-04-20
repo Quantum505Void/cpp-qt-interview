@@ -314,3 +314,177 @@ struct Header {
 
 - 直接把 C++ struct 裸发网络是高危行为，涉及对齐、字节序、ABI。
 - 追问：TCP 为什么会粘包？因为它是字节流，不保留应用层发送边界。
+
+
+### Q11: ⭐🟡 Qt 的信号槽机制和观察者模式有什么异同？
+
+
+A: 结论：Qt 信号槽是观察者模式的工程实现，但比手写观察者更强：支持多线程安全传递（QueuedConnection）、自动断开连接（对象销毁时）、运行时动态连接/断开。
+
+
+详细解释：
+
+
+- 相同：发布者（信号）不知道谁订阅，订阅者（槽）按需注册，松耦合。
+- 不同：信号槽有类型安全检查（函数指针语法）、自动生命周期管理（disconnect on destroy）、跨线程支持。
+- 手写观察者缺点：需要手动管理订阅者列表、无线程安全、析构时忘记注销容易野指针。
+- Qt 信号槽代价：MOC 预处理、轻微运行时开销（函数指针调用 + 元对象查找）。
+
+
+常见坑/追问：
+
+
+- 直接连接（DirectConnection）在信号发射线程调用槽，队列连接（QueuedConnection）在槽对象所在线程调用。
+- 追问：如何实现一个简单的观察者而不用 Qt？`std::function` + `std::vector`，注意线程安全和生命周期。
+
+
+---
+
+
+### Q12: ⭐🟡 ZeroMQ 和 MQTT 在 C++ 项目中各适合什么场景？
+
+
+A: 结论：ZeroMQ 适合进程间/机器间高性能消息传递（微服务、IPC、分布式系统），无需 broker；MQTT 适合 IoT 场景（设备-云通信），依赖 broker，支持 QoS 和离线消息。
+
+
+详细解释：
+
+
+- **ZeroMQ**：库形式，多种模式（REQ-REP、PUB-SUB、PUSH-PULL），延迟极低，适合实时数据总线。
+- **MQTT**：协议，通过 broker（如 Mosquitto/EMQ）中转，支持 QoS0/1/2，遗嘱消息，适合不稳定网络。
+- Qt 中：ZeroMQ 用 `zmq.hpp` C++ 绑定；MQTT 用 `QtMqtt` 模块（Qt 5.12+）或 `paho-mqtt-cpp`。
+- 选型原则：有 broker 基础设施且需要离线支持→MQTT；需要低延迟点对点/多播→ZeroMQ。
+
+
+常见坑/追问：
+
+
+- ZeroMQ 的 socket 不是线程安全的，每个线程需要独立 socket。
+- 追问：MQTT QoS2 的代价是什么？四次握手（PUBLISH/PUBREC/PUBREL/PUBCOMP），延迟最高，用于关键命令。
+
+
+---
+
+
+### Q13: ⭐🔴 如何设计一个支持请求-响应和事件推送的 C++ 通信框架？
+
+
+A: 结论：分两条通道：请求-响应用 REQ-REP 或异步 Future/Promise 模式（带超时）；事件推送用 PUB-SUB 或回调注册；统一用消息 ID 和序列号关联请求与响应。
+
+
+详细解释：
+
+
+- 请求-响应：客户端发送带唯一 `seq_id` 的请求，服务端响应中带相同 `seq_id`；客户端用 `QMap<uint32_t, Promise>` 管理待响应请求，超时自动 reject。
+- 事件推送：服务端主动发送事件，客户端注册 handler；用独立消息类型区分 response 和 event。
+- 超时处理：每个请求启动 QTimer，超时未响应则 reject 并清理。
+
+
+代码示例：
+
+
+```cpp
+uint32_t seq = nextSeq();
+pendingRequests_[seq] = {QElapsedTimer(), promise};
+sendMessage(RequestMsg{seq, data});
+// 收到响应时
+void onMessage(const Msg& msg) {
+    if (msg.type == RESPONSE && pendingRequests_.count(msg.seq))
+        pendingRequests_.take(msg.seq).promise.resolve(msg.data);
+}
+```
+
+
+常见坑/追问：
+
+
+- 序列号溢出回绕时要处理哈希冲突（环形空间的旧请求可能还在 pending 中）。
+- 追问：如何处理乱序响应？按序列号匹配，不按顺序假设；天然支持并发请求。
+
+
+---
+
+
+### Q14: ⭐🟡 C++ 中如何实现线程安全的消息队列？
+
+
+A: 结论：用 `std::queue` + `std::mutex` + `std::condition_variable` 实现阻塞队列；或用 `boost::lockfree::queue` / `moodycamel::ConcurrentQueue` 实现无锁队列；Qt 中用 `QQueue` + `QMutex` 或直接用信号槽（QueuedConnection）。
+
+
+详细解释：
+
+
+- 阻塞队列：生产者 push 后 `notify_one()`，消费者 `wait()` 直到有数据，适合生产者-消费者模型。
+- 无锁队列：基于 CAS 原子操作，无互斥锁，延迟更稳定，适合高频低延迟场景。
+- Qt 信号槽（QueuedConnection）本质上就是线程安全的消息队列，底层实现类似。
+
+
+代码示例：
+
+
+```cpp
+template<typename T>
+class BlockingQueue {
+    std::queue<T> q_;
+    std::mutex mu_;
+    std::condition_variable cv_;
+public:
+    void push(T item) {
+        std::lock_guard lock(mu_);
+        q_.push(std::move(item));
+        cv_.notify_one();
+    }
+    T pop() {
+        std::unique_lock lock(mu_);
+        cv_.wait(lock, [this]{ return !q_.empty(); });
+        T item = std::move(q_.front()); q_.pop();
+        return item;
+    }
+};
+```
+
+
+常见坑/追问：
+
+
+- 无锁队列不是万能的，ABA 问题和内存回收（hazard pointer）是常见坑。
+- 追问：如何支持超时 pop？`cv_.wait_for(lock, timeout, predicate)`，返回 false 表示超时。
+
+
+---
+
+
+### Q15: ⭐🔴 D-Bus 是什么？Qt 程序如何使用 D-Bus 进行 IPC？
+
+
+A: 结论：D-Bus 是 Linux 桌面标准 IPC 机制，通过消息总线（Session Bus / System Bus）实现进程间方法调用和信号广播；Qt 通过 `QtDBus` 模块提供 C++ 封装。
+
+
+详细解释：
+
+
+- **Session Bus**：用户会话内的应用间通信（如 MPRIS 媒体控制）。
+- **System Bus**：系统级服务（NetworkManager、UDisks、BlueZ）。
+- Qt 使用：`QDBusInterface` 调用远程方法，`QDBusConnection::connect` 监听信号，`Q_CLASSINFO("D-Bus Interface", ...)` 导出服务。
+- 工具：`qdbus`（命令行探测）、`d-feet`（GUI 浏览器）。
+
+
+代码示例：
+
+
+```cpp
+// 调用 NetworkManager 获取连接状态
+QDBusInterface nm("org.freedesktop.NetworkManager",
+                  "/org/freedesktop/NetworkManager",
+                  "org.freedesktop.NetworkManager",
+                  QDBusConnection::systemBus());
+QDBusReply<uint> state = nm.call("state");
+qDebug() << "NM state:" << state.value();
+```
+
+
+常见坑/追问：
+
+
+- D-Bus 方法调用是同步阻塞的，应使用异步调用（`asyncCall`）避免 UI 卡顿。
+- 追问：D-Bus 和 Unix Socket 有何不同？D-Bus 有服务名/对象路径/接口/方法的完整寻址体系，而 Unix Socket 是原始字节流，D-Bus 更适合通用系统集成。

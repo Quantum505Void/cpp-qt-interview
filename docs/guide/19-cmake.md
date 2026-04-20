@@ -338,3 +338,131 @@ target_link_libraries(app PRIVATE nlohmann_json::nlohmann_json)
 
 - 需要网络访问，CI 环境要预热缓存或用 mirror。
 - 追问：offline 环境怎么办？用 `SOURCE_DIR` 指向本地已有代码，或用 vcpkg local port。
+
+
+### Q13: ⭐🟡 CMake 中 target_include_directories 的 PUBLIC/PRIVATE/INTERFACE 有什么区别？
+
+
+A: 结论：这三个关键字控制"包含路径传播范围"：`PRIVATE` 只对当前 target 有效；`PUBLIC` 对当前 target 及所有链接它的 target 都有效；`INTERFACE` 只对链接它的 target 有效，当前 target 自身不使用。`target_link_libraries` 也遵循同样语义。
+
+
+详细解释：
+
+
+- `PRIVATE`：实现细节，外部不需要知道。
+- `PUBLIC`：接口是实现的一部分，使用者必须也能看到。
+- `INTERFACE`：纯头文件库（header-only）常用，自身没有 .cpp，只向外传播配置。
+- 正确设置传播性能让 CMake 自动处理依赖传递，不需要手动在每个 target 重复声明。
+
+
+代码示例（如有）：
+
+
+```cmake
+add_library(mylib STATIC src/mylib.cpp)
+
+# include/mylib 是公共接口，使用者也需要
+target_include_directories(mylib
+    PUBLIC  include        # 外部可见
+    PRIVATE src/internal  # 仅内部实现用
+)
+
+add_executable(app main.cpp)
+target_link_libraries(app PRIVATE mylib)
+# app 自动获得 include/mylib 的包含路径（因为 mylib PUBLIC 声明了）
+```
+
+
+常见坑/追问：
+
+
+- 滥用 `PUBLIC` 会导致包含路径泄漏，污染使用者的命名空间。
+- 追问：为什么 header-only 库用 `INTERFACE` library？因为没有编译单元，只有传播属性。
+
+
+### Q14: 🟡 如何在 CMake 中区分 Debug 和 Release 配置？
+
+
+A: 结论：通过 `CMAKE_BUILD_TYPE` 变量控制，或在多配置生成器（VS/Xcode）中用 `$<CONFIG:Debug>` 生成器表达式。常见做法是在 CMakeLists 里按配置添加不同编译选项，并在构建时传 `-DCMAKE_BUILD_TYPE=Release`。
+
+
+详细解释：
+
+
+- 单配置生成器（Makefile/Ninja）：`-DCMAKE_BUILD_TYPE=Debug|Release|RelWithDebInfo|MinSizeRel`。
+- 多配置生成器（VS/Xcode）：配置在生成器级别，`cmake --build build --config Release`。
+- `target_compile_options` 可用生成器表达式按配置追加选项。
+- Qt 项目还要注意 `QT_NO_DEBUG_OUTPUT`、`QT_DEBUG_MODE` 等宏与构建类型联动。
+
+
+代码示例（如有）：
+
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(MyApp)
+
+add_executable(app main.cpp)
+
+# 按配置设置编译选项
+target_compile_options(app PRIVATE
+    $<$<CONFIG:Debug>:-g -O0 -DDEBUG>
+    $<$<CONFIG:Release>:-O2 -DNDEBUG>
+)
+
+# 默认 Debug（方便开发环境）
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+endif()
+```
+
+
+常见坑/追问：
+
+
+- `CMAKE_BUILD_TYPE` 对多配置生成器无效，不要混用。
+- RelWithDebInfo（带调试符号的 Release）适合性能分析；MinSizeRel 适合嵌入式。
+
+
+### Q15: 🟡 CMake 如何做跨平台编译（Windows/Linux/macOS）？
+
+
+A: 结论：用 `if(WIN32)` / `if(UNIX)` / `if(APPLE)` 条件判断分平台设置差异化选项，并通过 `target_compile_definitions`、`target_link_libraries` 处理平台差异。Qt 的 CMake 支持已做了大量跨平台抹平，配合 `find_package(Qt6)` 通常开箱即用。
+
+
+详细解释：
+
+
+- 平台检测宏：`WIN32`、`UNIX`（Linux+macOS）、`APPLE`、`ANDROID`、`CMAKE_SYSTEM_NAME`。
+- Windows 特有：需要链接 `ws2_32`（Winsock）、设置 `/W4` 等 MSVC 选项。
+- Linux 特有：可能需要 `-lpthread`、`-ldl`。
+- macOS 特有：`-framework CoreFoundation` 等。
+- 工具链文件（toolchain file）用于交叉编译，如 ARM 嵌入式设备。
+
+
+代码示例（如有）：
+
+
+```cmake
+add_executable(app main.cpp)
+
+if(WIN32)
+    target_link_libraries(app PRIVATE ws2_32)
+    target_compile_definitions(app PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+elseif(APPLE)
+    target_link_libraries(app PRIVATE "-framework CoreFoundation")
+elseif(UNIX)
+    target_link_libraries(app PRIVATE pthread dl)
+endif()
+
+# Qt 跨平台：find_package 自动处理平台差异
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+target_link_libraries(app PRIVATE Qt6::Core Qt6::Widgets)
+```
+
+
+常见坑/追问：
+
+
+- 路径分隔符：CMake 内部统一用 `/`，不要硬编码 `\\`。
+- 追问：交叉编译怎么做？通过 `-DCMAKE_TOOLCHAIN_FILE=arm.cmake` 指定工具链文件，里面定义编译器路径和 sysroot。

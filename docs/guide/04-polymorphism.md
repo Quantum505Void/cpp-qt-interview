@@ -278,3 +278,125 @@ Base b = d; // slicing
 
 
 - 如果面试官追问，顺带讲为什么 `std::vector&lt;Base&gt;` 不能安全装 `Derived` 多态对象。
+
+
+### Q13: ⭐🟡 纯虚函数和抽象类有什么作用？
+
+
+A: 结论：纯虚函数（`= 0`）使类成为抽象类，无法被实例化，强制子类实现接口。它是 C++ 定义接口契约的标准方式。
+
+
+详细解释：
+
+
+- 抽象类可以有非纯虚成员函数，提供部分实现。
+- 纯虚析构函数也合法，但仍需提供函数体（否则链接错误）。
+- 抽象类常用于接口（全纯虚）和模板方法模式（部分实现）。
+
+
+代码示例（如有）：
+
+
+```cpp
+class IShape {
+public:
+    virtual ~IShape() = default;
+    virtual double area() const = 0;  // 纯虚
+    virtual void draw() const = 0;
+};
+
+class Circle : public IShape {
+    double r_;
+public:
+    Circle(double r) : r_(r) {}
+    double area() const override { return 3.14159 * r_ * r_; }
+    void draw() const override { /* ... */ }
+};
+
+// IShape s; // 错误：无法实例化抽象类
+```
+
+
+常见坑/追问：
+
+
+- 忘记实现某个纯虚函数，子类也会变成抽象类，编译时才会报错。
+- 纯虚析构函数：`virtual ~Base() = 0;` 需要在类外提供空实现 `Base::~Base() {}`。
+
+
+### Q14: ⭐🟡 虚函数表（vtable）的工作原理是什么？
+
+
+A: 结论：每个有虚函数的类在编译期生成一张虚函数表（vtable），每个对象头部有一个指向该表的指针（vptr）。通过基类指针调用虚函数时，运行期根据 vptr 找到对应子类的实现，这就是动态分发。
+
+
+详细解释：
+
+
+- vtable 是一张函数指针数组，按声明顺序排列各虚函数地址。
+- 每个对象多占一个指针大小（通常 8 字节）。
+- 继承后子类 vtable 会覆盖（override）对应槽位的函数指针。
+- `final` 关键字标记的函数/类，编译器可以去虚拟化（devirtualize），提升性能。
+
+
+代码示例（如有）：
+
+
+```cpp
+// 概念示意（非真实内存结构）
+// Base vtable: [&Base::foo, &Base::bar]
+// Derived vtable: [&Derived::foo, &Base::bar]  // foo 被覆盖
+
+Base* p = new Derived();
+p->foo();  // 通过 p->vptr[0] 调用 Derived::foo
+```
+
+
+常见坑/追问：
+
+
+- 构造函数内调用虚函数不走动态分发，调用的是当前类的版本。
+- 析构函数必须为虚（在多态基类中），否则 `delete base_ptr` 只调用基类析构，造成资源泄漏。
+
+
+### Q15: 🟡 override 和 final 关键字有什么用？
+
+
+A: 结论：`override` 明确声明该函数是对基类虚函数的覆盖，让编译器帮你检查签名是否匹配；`final` 禁止该函数或类被进一步覆盖/继承。二者都是防御性编程工具，能在编译期暴露错误。
+
+
+详细解释：
+
+
+- 没有 `override` 时，签名写错只会悄悄新增一个普通函数，不报错也不覆盖虚函数。
+- `final` 标在类上，禁止继承；标在函数上，禁止子类再 override。
+- 标记 `final` 的虚函数调用可被编译器优化为直接调用，消除虚分发开销。
+
+
+代码示例（如有）：
+
+
+```cpp
+class Base {
+public:
+    virtual void foo(int x);
+    virtual void bar();
+};
+
+class Derived : public Base {
+public:
+    void foo(int x) override;   // OK，编译器验证签名匹配
+    // void foo(float x) override; // 编译错误：签名不匹配
+    void bar() override final;  // 禁止子类再覆盖
+};
+
+class Leaf final : public Derived { // 禁止继承 Leaf
+};
+```
+
+
+常见坑/追问：
+
+
+- 只写 `virtual` 而不写 `override`，是 C++11 之前的遗留习惯，现代代码应加 `override`。
+- `final` 不是只能用在叶子类，也可以用在中间层类的特定函数上。

@@ -480,6 +480,248 @@ QtSerialBus
 ---
 
 
+### Q9: ⭐🟡 CAN 总线仲裁机制是怎么工作的？
+
+
+A: 结论：CAN 使用非破坏性位仲裁（CSMA/CD 的改进），优先级高（ID 值小）的帧自动赢得总线，低优先级帧自动退出重试，不会发生数据破坏。
+
+
+详细解释：
+
+
+- CAN 总线是线与逻辑：显性位（0）覆盖隐性位（1）。
+- 发送节点边发边监听，若发出 1 但读回 0，说明有更高优先级节点在发送，立即退出并等待重发。
+- ID 越小优先级越高（全 0 ID 最高优先）。
+- 这保证了高优先级消息（如急停、安全信号）始终能及时传输。
+
+
+常见坑/追问：
+
+
+- 如果两个节点 ID 完全相同会怎样？理论上不允许，实际会造成数据损坏，必须保证 ID 唯一。
+- 追问：CAN FD 和 CAN 2.0 仲裁阶段有何不同？仲裁阶段两者相同（慢速），数据阶段 CAN FD 可切换到高速（最高 8Mbps）。
+
+
+---
+
+
+### Q10: ⭐🟡 Modbus RTU 和 Modbus TCP 的帧结构有什么区别？
+
+
+A: 结论：Modbus RTU 基于串口，帧无显式起止符，靠 3.5 字符静默时间分帧，末尾 CRC16；Modbus TCP 基于以太网，加了 6 字节 MBAP 头（含事务 ID 和长度），去掉 CRC（TCP 本身保证完整性）。
+
+
+详细解释：
+
+
+- RTU 帧：`[设备地址 1B][功能码 1B][数据 nB][CRC16 2B]`，靠帧间间隔分包。
+- TCP 帧：`[事务ID 2B][协议ID 2B][长度 2B][单元ID 1B][功能码 1B][数据 nB]`，无 CRC。
+- TCP 版支持并发多事务（靠事务 ID 匹配响应），RTU 串口是严格问答式。
+- 两者功能码（03/06/10 等）完全一致，业务层可复用。
+
+
+常见坑/追问：
+
+
+- RTU 帧间静默时间不足时，从机会把两帧视为一帧导致解析失败。
+- 追问：Modbus ASCII 和 RTU 区别？ASCII 用可见字符编码，每字节变两个 ASCII 字符，调试方便但效率低，LRC 校验。
+
+
+---
+
+
+### Q11: ⭐🔴 嵌入式上位机通信中如何设计心跳机制？
+
+
+A: 结论：上位机定期（如每 1s）发送心跳包，下位机回复 ACK；超过 N 次（如 3 次）未收到回复则判定连接断开，触发报警或重连流程。
+
+
+详细解释：
+
+
+- 心跳周期选择：比链路超时时间短，比业务数据周期长（避免占用带宽）。
+- 下位机也可主动发心跳，上位机超时未收到则判断离线。
+- 心跳包要包含序号，防止旧心跳被误认为新回复。
+- Qt 实现：`QTimer` 驱动心跳发送，另一个 `QTimer` 做超时看门狗。
+
+
+代码示例：
+
+
+```cpp
+// 心跳看门狗
+QTimer* watchdog = new QTimer(this);
+watchdog->setInterval(3000); // 3s 超时
+connect(watchdog, &QTimer::timeout, this, [this]{
+    emit deviceOffline();
+    reconnect();
+});
+// 每次收到回复时重置
+void onAckReceived() { watchdog->start(); }
+```
+
+
+常见坑/追问：
+
+
+- 心跳和业务数据共用同一个超时看门狗，任何回复都可以重置，防止误报。
+- 追问：网络抖动导致心跳偶尔丢失怎么处理？连续 N 次才判断离线，单次丢包不触发。
+
+
+---
+
+
+### Q12: ⭐🟡 I²C 和 SPI 协议上位机如何通过 USB 桥接芯片访问？
+
+
+A: 结论：常用 CP2112（I²C）、FT232H/FT2232H（SPI/I²C/GPIO）等 USB 桥接芯片，上位机通过 HID 或 FTDI 库与芯片通信，芯片再驱动 I²C/SPI 总线。
+
+
+详细解释：
+
+
+- **CP2112**：USB HID 接口，支持 I²C master，配合 Silicon Labs SDK 使用，跨平台。
+- **FT232H**：FTDI 出品，支持 MPSSE（多协议同步串口引擎），可驱动 SPI/I²C/JTAG，用 libftdi 或 D2XX 库。
+- Qt 中可用 `QHidApi` 或 `QSerialPort`（若桥接为 CDC）访问，协议层自己实现。
+- 注意桥接芯片引入额外延迟（USB 帧 1ms），不适合时序极严格场景。
+
+
+常见坑/追问：
+
+
+- Linux 下 CP2112 需要 `cp210x` 或 `hid-cp2112` 内核模块，不是默认 HID 驱动。
+- 追问：直接用 USB 转串口和桥接 SPI 有何本质区别？转串口只做电平转换，SPI 桥接芯片完整实现 SPI master 协议，时序由芯片保证。
+
+
+---
+
+
+### Q13: ⭐🔴 嵌入式通信协议中如何处理字节序（大小端）问题？
+
+
+A: 结论：协议文档明确规定字节序（通常网络字节序=大端），发送方用 `htons`/`htonl` 转换，接收方用 `ntohs`/`ntohl` 恢复；或者统一用小端并在协议头注明，避免隐式假设。
+
+
+详细解释：
+
+
+- x86/ARM（LE）发送多字节字段必须转换，否则大端接收方解析错误。
+- `htons`（16位）/ `htonl`（32位）：host to network（大端）。
+- 自定义协议可规定小端，但需在文档中明确，不依赖平台默认值。
+- `std::bit_cast` + 手动字节交换是 C++20 的跨平台写法。
+
+
+代码示例：
+
+
+```cpp
+// 发送：主机序 → 网络序（大端）
+uint16_t value = 0x1234;
+uint16_t net_value = htons(value);
+memcpy(buf + offset, &net_value, 2);
+
+// 接收：网络序 → 主机序
+uint16_t received;
+memcpy(&received, buf + offset, 2);
+received = ntohs(received);
+```
+
+
+常见坑/追问：
+
+
+- 直接 `*(uint16_t*)ptr` 读取非对齐内存在某些架构上是 UB，用 `memcpy` 更安全。
+- 追问：如何在代码里检测当前平台字节序？`__BYTE_ORDER__` 宏或 `std::endian::native`（C++20）。
+
+
+---
+
+
+### Q14: ⭐🟡 上位机如何管理多个设备的并发通信？
+
+
+A: 结论：每个设备对应一个独立的通信对象（QSerialPort / QTcpSocket），统一由设备管理器（DeviceManager）持有，通过事件驱动（信号槽）处理数据，避免为每个设备创建独立线程。
+
+
+详细解释：
+
+
+- Qt 的异步 IO 模型（`readyRead` 信号）支持在单线程事件循环中管理多个设备。
+- 设备管理器维护 `QMap<DeviceId, QSerialPort*>` 映射，统一分发数据。
+- 每个设备有独立的状态机（连接/断开/通信中/超时），互不干扰。
+- 若协议解析耗时，可将解析逻辑移到工作线程，设备 IO 仍在主线程。
+
+
+代码示例：
+
+
+```cpp
+class DeviceManager : public QObject {
+    QMap<QString, QSerialPort*> devices_;
+public:
+    void addDevice(const QString& id, const QString& portName) {
+        auto* port = new QSerialPort(portName, this);
+        connect(port, &QSerialPort::readyRead, this, [this, id, port]{
+            emit dataReceived(id, port->readAll());
+        });
+        devices_[id] = port;
+    }
+};
+```
+
+
+常见坑/追问：
+
+
+- 设备断线重连时要先 `close()` 再 `open()`，不要直接复用已错误的 port 对象。
+- 追问：100 个设备并发时怎么处理？考虑用线程池 + 任务队列，或按协议类型分组到不同线程。
+
+
+---
+
+
+### Q15: ⭐🔴 如何设计一个可扩展的嵌入式协议解析框架？
+
+
+A: 结论：分层设计：物理层（字节流读取）→ 帧层（分帧、CRC 校验）→ 协议层（命令分发）→ 业务层（处理逻辑），每层职责单一，新协议只需扩展协议层。
+
+
+详细解释：
+
+
+- **物理层**：`QSerialPort`/`QTcpSocket` 负责字节流读取，数据推入 ring buffer。
+- **帧层**：状态机识别帧头/帧尾或解析长度字段，输出完整帧，做 CRC 校验，丢弃异常帧。
+- **协议层**：根据功能码/命令码路由到对应 Handler，用 `QMap<uint8_t, Handler*>` 或工厂模式。
+- **业务层**：Handler 处理数据，更新状态，发射信号通知 UI 或控制逻辑。
+- 新增协议：实现新 Handler，注册到协议层，无需改帧层或物理层。
+
+
+代码示例：
+
+
+```cpp
+class ProtocolDispatcher {
+    QMap<uint8_t, ICommandHandler*> handlers_;
+public:
+    void registerHandler(uint8_t cmd, ICommandHandler* h) { handlers_[cmd] = h; }
+    void dispatch(const Frame& frame) {
+        if (auto it = handlers_.find(frame.cmd); it != handlers_.end())
+            (*it)->handle(frame);
+    }
+};
+```
+
+
+常见坑/追问：
+
+
+- 帧层状态机要有超时复位，防止帧头进来了但帧尾永远等不到导致状态卡死。
+- 追问：如何支持多种协议并存（如同时连 Modbus 和私有协议）？每个设备实例有独立的帧层 + 协议层，DeviceManager 统一管理。
+
+
+---
+
+
 ## 📊 统计
 
 

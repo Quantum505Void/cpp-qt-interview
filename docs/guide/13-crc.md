@@ -278,3 +278,169 @@ printf("i=%zu byte=%02X crc=%04X\n", i, data[i], crc);
 
 - 很多“算法错了”其实是抓包工具显示顺序或自己抄协议抄漏字段。
 - 追问：标准测试串 `123456789` 的意义是什么？它是 CRC 实现对齐的常用基准样例。
+
+
+### Q11: ⭐🟡 CRC 和 Fletcher 校验有什么区别？
+
+
+A: 结论：CRC 基于多项式除法，检错能力强，适合通信和存储；Fletcher 校验用两个累加和，计算更简单，CPU 友好，常用于嵌入式低算力场景；两者都不能检测所有错误模式。
+
+
+详细解释：
+
+
+- **CRC**：能检测单比特错、连续多比特错（突发错误，长度 ≤ 多项式阶数）、奇数个比特错（使用特定多项式时）。
+- **Fletcher-16/32**：两个运行累加和，比单纯求和增加了位置信息，比 Adler-32 稍弱但更简单。
+- **Adler-32**：Zlib 使用，与 Fletcher 类似但模数不同（65521 vs 255），速度和检错能力均衡。
+- 嵌入式无硬件 CRC 时，Fletcher-16 是常见替代选择。
+
+
+常见坑/追问：
+
+
+- Fletcher 和 CRC 都无法检测某些特定错误模式（如全零数据），要根据实际错误模型选择。
+- 追问：为什么 TCP 用 16 位校验和而不用 CRC？历史原因，16 位补码和简单快速，硬件实现早于 CRC，且 TCP 上层有重传机制做兜底。
+
+
+---
+
+
+### Q12: ⭐🟡 CRC 硬件加速如何使用？
+
+
+A: 结论：现代 CPU 提供 CRC32 指令（x86 的 `_mm_crc32_u8/u32/u64`，ARM 的 `__crc32cb` 等），相比软件查表快 5-10 倍；STM32 等 MCU 也有硬件 CRC 外设。
+
+
+详细解释：
+
+
+- **x86 SSE4.2**：`_mm_crc32_u8/16/32/64`，直接映射到 `CRC32` 指令，单周期处理 1/2/4/8 字节。
+- **ARM CRC 扩展**：`__crc32b/h/w` 内置函数（需 `-march=armv8-a+crc`）。
+- **STM32 CRC 外设**：配置多项式寄存器，DMA 搬运数据，CPU 占用极低。
+- 注意：硬件 CRC 的多项式和位序需和协议匹配，不一致会得到错误结果。
+
+
+代码示例：
+
+
+```cpp
+// x86 SSE4.2 CRC32C
+#include <nmmintrin.h>
+uint32_t crc32c_hw(const uint8_t* data, size_t len) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < len; i++)
+        crc = _mm_crc32_u8(crc, data[i]);
+    return crc ^ 0xFFFFFFFF;
+}
+```
+
+
+常见坑/追问：
+
+
+- x86 `CRC32` 指令使用的是 Castagnoli 多项式（CRC32C），不是以太网/ZIP 用的 CRC32。
+- 追问：如何判断 CPU 是否支持 SSE4.2？`__builtin_cpu_supports("sse4.2")`（GCC/Clang）或 CPUID。
+
+
+---
+
+
+### Q13: ⭐🔴 如何为自定义协议选择合适的 CRC 参数？
+
+
+A: 结论：参考 Philip Koopman 的 CRC 多项式研究，根据数据块大小和期望的汉明距离（HD）选择多项式；常见场景：短帧（≤128B）用 CRC-8，中等帧用 CRC-16，长帧/高可靠用 CRC-32。
+
+
+详细解释：
+
+
+- **汉明距离（HD）**：HD=3 表示能检测所有 2 比特错；HD=4 能检测所有 3 比特错。
+- 标准多项式的适用范围已有测试数据（Koopman 数据库）。
+- CRC-16/IBM（Modbus）：适合工业串口，短到中等数据块。
+- CRC-16/CCITT（0x1021）：适合 HDLC、SD 卡、USB 等。
+- CRC-32C（Castagnoli）：性能最优，iSCSI、SCTP、Linux btrfs 使用。
+
+
+常见坑/追问：
+
+
+- 随便发明多项式可能检错能力很差，务必选用经过验证的标准多项式。
+- 追问：为什么 CRC-32C 比 CRC-32（以太网）更好？Koopman 研究表明 0x1EDC6F41 在各数据长度下汉明距离更优。
+
+
+---
+
+
+### Q14: ⭐🟡 在 Qt 中如何封装一个通用的 CRC 校验模块？
+
+
+A: 结论：封装一个 `CrcCalculator` 类，接受多项式参数（poly/init/xorout/refin/refout），内部按配置生成查找表，提供 `calculate(data, len)` 接口，支持运行时切换协议参数。
+
+
+详细解释：
+
+
+- 参数化设计：支持不同 width（8/16/32）、poly、init、xorout、refin、refout，一个类覆盖主流 CRC 变体。
+- 查找表缓存：第一次计算时按 poly 生成并缓存，相同 poly 不重复计算。
+- Qt 集成：可加 `QByteArray` 重载，方便与 Qt 串口、网络数据配合。
+
+
+代码示例：
+
+
+```cpp
+class CrcCalculator {
+    uint32_t table_[256];
+    uint32_t poly_, init_, xorout_;
+    bool refin_, refout_;
+public:
+    CrcCalculator(uint32_t poly, uint32_t init, uint32_t xorout,
+                  bool refin, bool refout);
+    uint32_t calculate(const uint8_t* data, size_t len) const;
+    uint32_t calculate(const QByteArray& data) const {
+        return calculate(reinterpret_cast<const uint8_t*>(data.constData()), data.size());
+    }
+};
+```
+
+
+常见坑/追问：
+
+
+- 不同 width 的 CRC 需要不同类型的表（uint8_t/uint16_t/uint32_t），泛型设计时注意。
+- 追问：如何测试 CRC 实现正确性？用标准测试串 `"123456789"` 对比已知期望值。
+
+
+---
+
+
+### Q15: ⭐🔴 CRC 残差（Residue）是什么？如何用它验证接收数据（含 CRC 本身）？
+
+
+A: 结论：残差是将带 CRC 的完整帧（含 CRC 字段）再做一次 CRC 计算的固定结果；如果传输无误，结果应等于该 CRC 变体的标准残差值，这样无需单独提取 CRC 字段做比较。
+
+
+详细解释：
+
+
+- 原理：对数据 `D + CRC(D)` 计算 CRC，因为 CRC 的性质，结果是一个固定常数（残差）。
+- CRC-32（IEEE）残差：`0x2144DF1C`；CRC-16/CCITT 残差：`0x1D0F`（具体值依实现参数）。
+- 使用：接收端直接对整帧（含 CRC 字节）计算 CRC，与已知残差比对，比提取 CRC 再比较更简洁。
+- 注意：只有 refout=false 且正常字节顺序时残差才固定，参数不同残差值也不同。
+
+
+代码示例：
+
+
+```cpp
+// 接收整帧（含 CRC）后验证
+uint32_t residue = crc32_ieee(full_frame, frame_len);
+bool valid = (residue == 0x2144DF1C); // CRC-32 IEEE 标准残差
+```
+
+
+常见坑/追问：
+
+
+- 残差值是协议参数的函数，换多项式或字节顺序后残差值需重新测试确认。
+- 追问：残差验证比传统"提取CRC再比对"有什么优势？代码更简单，不需要手动分离 CRC 字段，但需要提前知道残差值。

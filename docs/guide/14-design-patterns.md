@@ -411,3 +411,112 @@ history.push(std::move(cmd));
 
 - 命令里要保存足够的“撤销信息”，不只是最终值。
 - 追问：命令模式和策略模式区别？命令封装“动作”可撤销，策略封装“算法”可替换，意图不同。
+
+
+### Q14: ⭐🟡 工厂模式在 C++/Qt 中如何落地？简单工厂、工厂方法、抽象工厂有什么区别？
+
+
+A: 结论：三者都是"把对象创建逻辑封装起来"的模式，区别在于灵活性层级：简单工厂用 switch/if 集中创建，扩展需改已有代码；工厂方法每种产品对应一个子类工厂，遵循开闭原则；抽象工厂创建一族相关产品，适合跨平台 UI 组件等场景。
+
+
+详细解释：
+
+
+- 简单工厂：非 GoF 标准模式，实现简单但违反开闭原则，适合产品类型固定、不频繁变化的场景。
+- 工厂方法：定义创建接口，由子类决定实例化哪个类，Qt 插件体系类似此模式。
+- 抽象工厂：创建多个相关对象的"家族"，如"Windows 风格 UI 工厂"和"macOS 风格 UI 工厂"各自生产按钮、对话框等。
+- Qt 中 `QStyle::standardPixmap` / 各种 `create*` 系列都有工厂方法影子。
+
+
+代码示例（如有）：
+
+
+```cpp
+// 工厂方法示例
+class Sensor {
+public:
+    virtual ~Sensor() = default;
+    virtual double read() = 0;
+};
+
+class SensorFactory {
+public:
+    virtual ~SensorFactory() = default;
+    virtual std::unique_ptr<Sensor> create() = 0;
+};
+
+class TemperatureSensor : public Sensor { double read() override { return 25.0; } };
+class TemperatureFactory : public SensorFactory {
+    std::unique_ptr<Sensor> create() override {
+        return std::make_unique<TemperatureSensor>();
+    }
+};
+
+// 调用方只依赖 SensorFactory 接口，不耦合具体类型
+void init(SensorFactory& factory) {
+    auto sensor = factory.create();
+    qDebug() << sensor->read();
+}
+```
+
+
+常见坑/追问：
+
+
+- 不是所有创建逻辑都需要工厂；只有创建过程复杂、或需要运行期选择类型时才值得引入。
+- 追问：Qt 中 `QAbstractItemModel` 的 `createIndex()` 算工厂方法吗？算——它封装了索引对象的创建逻辑。
+
+
+### Q15: 🟡 装饰器模式（Decorator）和继承有什么本质区别？在 Qt 里怎么用？
+
+
+A: 结论：继承在编译期固定行为组合，子类数量随功能数量指数增长；装饰器在运行期动态叠加行为，通过组合而非继承扩展对象功能，更灵活、更符合"开闭原则"。Qt 的 `QProxyModel`、样式表系统都体现了装饰器思想。
+
+
+详细解释：
+
+
+- 装饰器持有被装饰对象的引用，实现同一接口，在调用前后插入额外逻辑。
+- 可以任意叠加多个装饰器，顺序可组合，不需要修改原始类。
+- Qt 的 `QSortFilterProxyModel` 就是典型：它包装 `QAbstractItemModel`，在不改变原始模型的情况下增加过滤/排序能力，可以多层嵌套。
+
+
+代码示例（如有）：
+
+
+```cpp
+// 通用装饰器模式
+class ILogger {
+public:
+    virtual ~ILogger() = default;
+    virtual void log(const QString& msg) = 0;
+};
+
+class ConsoleLogger : public ILogger {
+public:
+    void log(const QString& msg) override { qDebug() << msg; }
+};
+
+// 装饰器：在日志前加时间戳
+class TimestampDecorator : public ILogger {
+    std::unique_ptr<ILogger> inner_;
+public:
+    TimestampDecorator(std::unique_ptr<ILogger> inner) : inner_(std::move(inner)) {}
+    void log(const QString& msg) override {
+        inner_->log(QDateTime::currentDateTime().toString() + " " + msg);
+    }
+};
+
+// Qt 实战：多层代理模型
+auto* sourceModel = new QStandardItemModel();
+auto* filterModel = new QSortFilterProxyModel();
+filterModel->setSourceModel(sourceModel);  // 装饰：添加过滤能力
+// 可以再套一层排序代理
+```
+
+
+常见坑/追问：
+
+
+- 装饰器层数过多时，调试调用链复杂；注意每层的生命周期管理。
+- 追问：装饰器 vs 策略模式？装饰器包装同接口对象增强行为；策略替换算法实现，接口不变但行为可替换。

@@ -372,3 +372,63 @@ qDebug() << p.readAllStandardOutput();
 
 - 不要忽略命令注入风险。
 - 大输出场景下，如果不及时读取管道，子进程可能阻塞。
+
+
+### Q15: ⭐🟡 Qt 的属性系统（Q_PROPERTY）是什么？有什么用？
+
+
+A: 结论：`Q_PROPERTY` 宏在 Qt 元对象系统中注册属性，使属性可以被 QML 绑定、被 `QObject::property()` 反射读写、被属性动画（`QPropertyAnimation`）驱动、被序列化工具自动枚举。它是 Qt 数据绑定和动态访问的核心机制。
+
+
+详细解释：
+
+
+- 属性需要声明 `READ`/`WRITE` 函数，可选 `NOTIFY` 信号（QML 绑定必须有 NOTIFY）。
+- `QPropertyAnimation` 通过属性名字符串驱动，不需要直接持有对象方法指针。
+- `QObject::property("name")` 和 `setProperty("name", val)` 支持运行期动态访问。
+- C++20 风格的 `Q_PROPERTY` 在 Qt 6 中也可与绑定引擎（`QBindable`）配合，实现响应式数据流。
+
+
+代码示例（如有）：
+
+
+```cpp
+class Circle : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(double radius READ radius WRITE setRadius NOTIFY radiusChanged)
+public:
+    explicit Circle(QObject* parent = nullptr) : QObject(parent), radius_(1.0) {}
+
+    double radius() const { return radius_; }
+    void setRadius(double r) {
+        if (qFuzzyCompare(r, radius_)) return;
+        radius_ = r;
+        emit radiusChanged(r);
+    }
+
+signals:
+    void radiusChanged(double newRadius);
+
+private:
+    double radius_;
+};
+
+// 使用：属性动画
+auto* anim = new QPropertyAnimation(circle, "radius");
+anim->setStartValue(1.0);
+anim->setEndValue(100.0);
+anim->setDuration(2000);
+anim->start();
+
+// 反射访问
+circle->setProperty("radius", 50.0);
+qDebug() << circle->property("radius").toDouble();
+```
+
+
+常见坑/追问：
+
+
+- `NOTIFY` 信号里传新值是惯例但不是强制；QML 绑定依赖 NOTIFY 信号来刷新。
+- 属性类型必须是 `QMetaType` 已知的类型，自定义类型需要 `Q_DECLARE_METATYPE` + `qRegisterMetaType`。
+- 追问：`Q_PROPERTY` 和直接公开成员变量的区别？属性提供封装、变更通知、元对象系统集成，公开成员变量都没有。

@@ -441,3 +441,224 @@ Redis redis(sentinel, "mymaster", Role::MASTER);
 
 
 ---
+
+
+### Q9: ⭐🟡 Redis 的持久化机制 RDB 和 AOF 有什么区别？如何选择？
+
+
+A: 结论：RDB 是定期全量快照（fork + bgsave），恢复快但可能丢失最近数据；AOF 记录每条写命令，数据更完整但文件大、恢复慢；生产中常两者结合（AOF 保安全，RDB 做备份）。
+
+
+详细解释：
+
+
+- **RDB**：`BGSAVE` fork 子进程，利用 COW 快照当前数据集，生成 `.rdb` 文件；恢复时直接加载，速度快。
+- **AOF**：每次写操作追加到 `appendonly.aof`；`fsync always/everysec/no` 控制刷盘频率；`BGREWRITEAOF` 压缩文件。
+- **AOF + RDB（Redis 7 默认）**：AOF 文件头嵌入 RDB 快照，兼顾启动速度和数据安全。
+- 选择：数据不能丢 → AOF（everysec）；允许丢几分钟 → RDB；高性能且可接受全失 → 关闭持久化（缓存场景）。
+
+
+常见坑/追问：
+
+
+- AOF `fsync always` 每次写都刷盘，安全但性能极低；`everysec` 最多丢 1s 数据，推荐。
+- 追问：RDB fork 时内存翻倍吗？不一定，COW 只在写入时复制页面，实际内存增长取决于快照期间的写入量。
+
+
+---
+
+
+### Q10: ⭐🟡 Redis Cluster 的数据分片原理是什么？
+
+
+A: 结论：Redis Cluster 将数据分散到 16384 个哈希槽（hash slot），每个节点负责一段槽范围；键通过 `CRC16(key) % 16384` 计算目标槽，客户端连接任意节点后若槽不在本节点则收到 `MOVED` 重定向。
+
+
+详细解释：
+
+
+- 16384 个槽分配给 N 个主节点，每节点约 `16384/N` 个槽。
+- 客户端应缓存槽映射表，直接路由到正确节点，避免 `MOVED` 重定向开销。
+- Hash Tag：`{user}.profile` 和 `{user}.score` 同一 `{user}` 确保在同一槽，支持跨键操作（MGET/事务）。
+- 节点扩容：迁移槽，在线迁移期间两个节点都可能有槽数据，客户端用 `ASK` 重定向处理。
+
+
+常见坑/追问：
+
+
+- `MGET`、`KEYS` 等跨槽命令在 Cluster 模式不支持（或需要 Hash Tag 保证同槽）。
+- 追问：redis-plus-plus 如何支持 Cluster？`RedisCluster` 类内置槽映射和 MOVED/ASK 重定向处理。
+
+
+---
+
+
+### Q11: ⭐🔴 Redis 的事务（MULTI/EXEC）和 Lua 脚本有什么区别？
+
+
+A: 结论：Redis 事务保证命令顺序执行和原子性（中间不被其他客户端插入），但不支持回滚（命令错误不中止）；Lua 脚本原子执行整段逻辑，支持条件判断，适合"读-判断-写"原子操作。
+
+
+详细解释：
+
+
+- **MULTI/EXEC**：命令入队 → EXEC 一次性执行，中间不被打断；但命令语法错（入队时报错）整批失败，运行时错误（如 INCR 字符串）不影响其他命令继续执行。
+- **Lua 脚本**：`EVAL "script" numkeys key1 ... arg1 ...`，原子执行，可以有条件分支，适合 CAS、限流等复杂操作。
+- WATCH：乐观锁，`WATCH key` 后若 key 被修改则 EXEC 失败（返回 nil），用于实现 CAS。
+
+
+代码示例：
+
+
+```cpp
+// redis-plus-plus Lua 脚本
+std::string script = R"(
+    local v = redis.call('GET', KEYS[1])
+    if v == ARGV[1] then
+        return redis.call('SET', KEYS[1], ARGV[2])
+    end
+    return 0
+)";
+redis.eval<long long>(script, {"mykey"}, {"oldval", "newval"});
+```
+
+
+常见坑/追问：
+
+
+- Lua 脚本不能执行耗时操作（阻塞 Redis 单线程），脚本超时会被强制终止（`lua-time-limit`）。
+- 追问：Redis 事务能回滚吗？不能，Redis 不支持回滚，只保证原子性（要么全执行要么全不执行）但不保证一致性。
+
+
+---
+
+
+### Q12: ⭐🟡 Redis 常用数据结构的底层编码是什么？
+
+
+A: 结论：Redis 根据数据大小自动选择紧凑编码（节省内存）或通用结构，如 String 小整数用 int 编码，短字符串用 embstr，List 小数据用 listpack，大数据用 quicklist。
+
+
+详细解释：
+
+
+- **String**：整数 → int；短字符串（≤44B）→ embstr（一次分配）；长字符串 → raw（两次分配）。
+- **List**：元素少且小 → listpack（连续内存）；否则 → quicklist（listpack 链表）。
+- **Hash**：元素少且字段短 → listpack；否则 → hashtable。
+- **ZSet**：元素少 → listpack；否则 → skiplist + hashtable（跳表提供有序访问，哈希表提供 O(1) 查找）。
+- **Set**：全整数且小 → intset；否则 → hashtable。
+
+
+常见坑/追问：
+
+
+- listpack 阈值可通过 `hash-max-listpack-entries`、`zset-max-listpack-entries` 等配置调整，影响内存和性能平衡。
+- 追问：为什么 ZSet 同时用跳表和哈希表？跳表支持范围查询（ZRANGEBYSCORE），哈希表支持 O(1) ZSCORE，两者互补。
+
+
+---
+
+
+### Q13: ⭐🔴 C++ 项目中如何设计 Redis 连接池？
+
+
+A: 结论：使用 redis-plus-plus 内置连接池（`ConnectionPoolOptions`）或自实现：固定数量连接放入 `std::queue`，借出时加锁取出，归还时放回，超时等待用 `condition_variable`。
+
+
+详细解释：
+
+
+- redis-plus-plus 已内置：`ConnectionPoolOptions` 设置 `size`（最大连接数）和 `wait_timeout`。
+- 自实现连接池要点：连接检活（发 PING）、错误时重建连接、池满时等待或拒绝、优雅关闭。
+- 异步场景：考虑 `hiredis-async` + libuv/boost.asio，或 redis-plus-plus 的 async 接口（实验性）。
+
+
+代码示例：
+
+
+```cpp
+// redis-plus-plus 连接池配置
+ConnectionPoolOptions pool_opts;
+pool_opts.size = 10;
+pool_opts.wait_timeout = std::chrono::milliseconds(200);
+pool_opts.connection_lifetime = std::chrono::minutes(10);
+
+ConnectionOptions conn_opts;
+conn_opts.host = "127.0.0.1";
+conn_opts.port = 6379;
+
+Redis redis(conn_opts, pool_opts);
+// redis 对象自动管理连接池，线程安全
+```
+
+
+常见坑/追问：
+
+
+- 连接池大小不是越大越好，过多连接会增加 Redis 服务器内存和 CPU 开销。
+- 追问：连接断开后如何自动重连？redis-plus-plus 内部会自动重试，但要配置 `socket_timeout` 防止长时间阻塞。
+
+
+---
+
+
+### Q14: ⭐🟡 Redis 的发布订阅（Pub/Sub）和 Stream 有什么区别？
+
+
+A: 结论：Pub/Sub 是"发布即丢弃"，订阅者不在线时消息丢失，无持久化，适合实时通知；Stream 是持久化消息队列，支持消费者组、消息确认、从历史消息消费，适合可靠消息传递。
+
+
+详细解释：
+
+
+- **Pub/Sub**：`PUBLISH channel msg` / `SUBSCRIBE channel`；无缓冲，离线订阅者错过消息；适合日志广播、实时状态推送。
+- **Stream**：`XADD stream * field value` 追加消息；`XREAD`/`XREADGROUP` 消费；`XACK` 确认；消息永久保存（可设 MAXLEN）；适合任务队列、审计日志。
+- Stream 消费者组：多个消费者竞争消费同一 stream，自动分配，类似 Kafka consumer group。
+
+
+代码示例：
+
+
+```cpp
+// redis-plus-plus Stream
+redis.xadd("mystream", "*", {{"event", "login"}, {"user", "alice"}});
+// 消费
+auto messages = redis.xread("mystream", "$", 10);
+```
+
+
+常见坑/追问：
+
+
+- Pub/Sub 不适合需要保证送达的场景，消息发布时若无订阅者则永久丢失。
+- 追问：Stream 和 List 做队列有何不同？List BLPOP 消费后消息删除，无 ACK；Stream 支持消费者组和 ACK，消息可重新投递。
+
+
+---
+
+
+### Q15: ⭐🔴 Redis 内存淘汰策略有哪些？生产环境如何选择？
+
+
+A: 结论：Redis 提供 8 种淘汰策略，核心选择：纯缓存场景用 `allkeys-lru`；有重要数据不能丢用 `volatile-lru`（只淘汰有 TTL 的 key）；不允许淘汰用 `noeviction`（写入报错）。
+
+
+详细解释：
+
+
+- **noeviction**：内存满时新写入报错，保证数据不丢，适合持久化存储场景。
+- **allkeys-lru**：所有 key 按 LRU 淘汰，纯缓存首选，最常用。
+- **volatile-lru**：只淘汰有过期时间的 key，重要数据不设 TTL 则不被淘汰。
+- **allkeys-lfu**（Redis 4.0+）：按访问频率淘汰，热点数据保留更好。
+- **allkeys-random** / **volatile-random**：随机淘汰，不推荐，破坏热点数据保留。
+- **volatile-ttl**：优先淘汰 TTL 最短的 key。
+
+
+常见坑/追问：
+
+
+- 生产环境必须监控 `used_memory` 和 `evicted_keys` 指标，`evicted_keys` 持续增长说明内存不足。
+- 追问：LRU 和 LFU 哪个更好？LRU 简单有效；LFU 适合访问频率差异大的场景（防止偶发大流量刷掉热数据）。
+
+
+---

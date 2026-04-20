@@ -1,6 +1,45 @@
 import { defineConfig } from 'vitepress'
+import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  vite: {
+    plugins: [
+      VitePWA({
+        registerType: 'autoUpdate',
+        outDir: '.vitepress/dist',
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+        manifest: {
+          name: 'C++ / Qt 面试题库',
+          short_name: 'CppQt面试',
+          description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化，600+ 题目',
+          theme_color: '#646cff',
+          background_color: '#ffffff',
+          display: 'standalone',
+          lang: 'zh-CN',
+          icons: [
+            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          ]
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          navigateFallback: null,
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: { maxEntries: 10, maxAgeSeconds: 31536000 },
+                cacheableResponse: { statuses: [0, 200] }
+              }
+            }
+          ]
+        }
+      })
+    ]
+  },
   title: 'C++ / Qt 面试题库',
   description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化',
   base: '/cpp-qt-interview/',
@@ -8,12 +47,17 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: '首页', link: '/' },
+      { text: '学习路线', link: '/guide/00-roadmap' },
       { text: 'C++ 核心', link: '/guide/02-cpp11-14-17' },
       { text: 'Qt 框架', link: '/guide/01-qt-basics' },
       { text: '并发/线程', link: '/guide/07-concurrency' },
     ],
 
     sidebar: [
+      {
+        text: '🗺️ 学习路线',
+        items: [{ text: '如何使用本题库', link: '/guide/00-roadmap' }]
+      },
       {
         text: 'C++ 核心',
         collapsed: false,
@@ -90,7 +134,7 @@ export default defineConfig({
       },
       {
         text: '扩展领域',
-        collapsed: true,
+        collapsed: false,
         items: [
           { text: '11. C++ 加密体系', link: '/guide/11-crypto' },
           { text: '27. 性能优化', link: '/guide/27-performance' },

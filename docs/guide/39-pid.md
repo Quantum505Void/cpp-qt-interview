@@ -551,3 +551,228 @@ return inner_.compute(inner_setpoint, inner_measurement);
 
 
 ---
+
+
+### Q9: ⭐🟡 PID 参数整定有哪些常用方法？
+
+
+A: 结论：工程中最常用的是 Ziegler-Nichols 法（临界比例法）和手动试凑法；自动化场景有继电反馈法和遗传算法整定。
+
+
+详细解释：
+
+
+- **Ziegler-Nichols 临界比例法**：只开 P，慢慢增大 Kp 直到系统等幅振荡，记录临界增益 Ku 和振荡周期 Tu，再代入经验公式得 Kp/Ki/Kd。
+- **手动试凑顺序**：先 P（响应够快）→ 再 I（消除稳态误差）→ 最后 D（减小超调）。
+- **继电反馈法**：用继电器（bang-bang）激励系统，自动识别临界点，减少人工干预。
+- 参数整定是反复迭代过程，不要追求一次完美。
+
+
+常见坑/追问：
+
+
+- Z-N 方法偏保守，实际可能需要进一步微调。
+- 追问：为什么不总是用自动整定？自动整定需要特定激励条件，实际工程中设备不能随意"振荡"。
+
+
+---
+
+
+### Q10: ⭐🟡 数字 PID 实现中的积分饱和（Integral Windup）怎么处理？
+
+
+A: 结论：积分饱和是指执行器达到物理限制后积分项继续积累，导致响应严重滞后；常用方案是 Anti-Windup：限制积分范围、条件积分或 back-calculation。
+
+
+详细解释：
+
+
+- **Clamping（最简单）**：积分项超出 `[int_min, int_max]` 则截断。
+- **条件积分**：输出饱和时暂停积分累加。
+- **Back-calculation**：用输出饱和误差反馈修正积分项，响应更平滑。
+
+
+代码示例：
+
+
+```cpp
+// Clamping anti-windup
+integral_ += error * dt;
+integral_ = std::clamp(integral_, -integral_limit_, integral_limit_);
+double output = Kp_*error + Ki_*integral_ + Kd_*(error-prev_error_)/dt;
+output = std::clamp(output, output_min_, output_max_);
+```
+
+
+常见坑/追问：
+
+
+- 没做 Anti-Windup 的 PID 在启动大负载时常见问题：超调巨大，甚至振荡。
+- 追问：back-calculation 的优点？积分项和输出饱和的修正是连续的，比直接截断更平滑。
+
+
+---
+
+
+### Q11: ⭐🔴 PID 在纯数字控制中采样周期对性能有什么影响？
+
+
+A: 结论：采样周期 T 要远小于系统时间常数（一般 T < τ/10），否则离散化误差大，D 项噪声放大，系统可能不稳定。
+
+
+详细解释：
+
+
+- T 过大：微分项 `(error-prev)/T` 近似粗糙，对快变化不灵敏，对突变过于敏感。
+- T 过小：D 项对高频噪声极其敏感，需配合低通滤波。
+- 一般规则：T ≤ τ/10（τ 为系统最小时间常数），或控制带宽的 1/5~1/10。
+- 实时系统要保证 T 的抖动（jitter）足够小，否则变步长 PID 效果差。
+
+
+常见坑/追问：
+
+
+- 嵌入式中用 `HAL_GetTick()` 等实测 dt 而非假设固定 dt，避免步长偏差积累。
+- 追问：T 不固定怎么办？每次计算实测 dt 并代入 I/D 项，即变步长 PID。
+
+
+---
+
+
+### Q12: ⭐🟡 如何在 Qt 中用定时器驱动 PID 控制环？
+
+
+A: 结论：用 `QTimer` + 工作线程（QThread + 事件循环）实现高精度、非阻塞的控制环；避免在主线程（UI 线程）直接跑控制逻辑。
+
+
+详细解释：
+
+
+- 主线程负责 UI 显示和参数设置，工作线程跑控制环。
+- `QTimer` 在工作线程的事件循环中运行，周期触发 PID 计算。
+- 控制量通过信号槽发送给设备接口（串口/CAN），结果回显通过信号传回 UI。
+- 要求更高精度时可用 `timerfd`（Linux）+ `QSocketNotifier` 替代 QTimer。
+
+
+代码示例：
+
+
+```cpp
+class PidWorker : public QObject {
+    Q_OBJECT
+    QTimer timer_;
+    PidController pid_;
+public slots:
+    void start() {
+        connect(&timer_, &QTimer::timeout, this, &PidWorker::loop);
+        timer_.start(10); // 10ms = 100Hz
+    }
+    void loop() {
+        double measurement = sensor_->read();
+        double output = pid_.compute(setpoint_, measurement);
+        actuator_->write(output);
+    }
+};
+```
+
+
+常见坑/追问：
+
+
+- `QTimer` 精度受系统调度影响，实测抖动在 1-5ms 量级，工业精度要求高时需 RTOS 或 `timerfd`。
+- 追问：为什么不在主线程用 QTimer？控制环阻塞会导致 UI 卡顿，两者要分离。
+
+
+---
+
+
+### Q13: ⭐🟡 前馈控制（Feedforward）和 PID 反馈控制如何结合？
+
+
+A: 结论：前馈根据已知扰动或设定值变化率预先补偿，不依赖误差；与 PID 相加后，反馈负责消除残余误差，两者互补，响应更快且稳态更准。
+
+
+详细解释：
+
+
+- 纯 PID：等误差出现才纠正，有滞后。
+- 加前馈：根据设定值变化（或已知负载变化）直接叠加控制量，提前补偿。
+- 典型场景：电机速度控制中，速度设定值变化率乘以加速度前馈系数直接加到控制量上。
+
+
+代码示例：
+
+
+```cpp
+double feedforward = Kff_ * (setpoint_ - prev_setpoint_) / dt;
+double feedback = pid_.compute(setpoint_, measurement);
+double output = feedback + feedforward;
+prev_setpoint_ = setpoint_;
+```
+
+
+常见坑/追问：
+
+
+- 前馈参数需要依赖准确的系统模型，模型不准反而引入误差。
+- 追问：前馈和 D 项区别？D 项对误差微分（滞后一步），前馈对输入微分（超前）。
+
+
+---
+
+
+### Q14: ⭐🔴 PID 控制器如何处理设定值跳变（Setpoint Step）引起的微分冲击？
+
+
+A: 结论：微分冲击（Derivative Kick）是因为设定值突变导致误差微分瞬间极大；解决方案是对测量值求导（Derivative on Measurement）而不是对误差求导。
+
+
+详细解释：
+
+
+- 标准 PID D 项：`Kd * d(error)/dt = Kd * d(setpoint-measurement)/dt`，设定值突变时 d(setpoint) 是冲击函数。
+- 改进：`D = -Kd * d(measurement)/dt`，设定值变化不影响 D 项。
+- 这是工业 PID 的标准做法，几乎所有 PLC 和 DCS 系统默认如此。
+
+
+代码示例：
+
+
+```cpp
+// Derivative on Measurement（推荐）
+double derivative = -(measurement - prev_measurement_) / dt;
+double output = Kp_*error + Ki_*integral_ + Kd_*derivative;
+prev_measurement_ = measurement;
+```
+
+
+常见坑/追问：
+
+
+- 教科书常用误差微分，工程实践应改为测量值微分。
+- 追问：设定值滤波（Setpoint Weighting）是什么？在 P 项和 D 项分别给设定值加权系数，灵活控制跟踪速度和冲击。
+
+
+---
+
+
+### Q15: ⭐🔴 为什么 PID 在非线性或时变系统中效果差？有哪些改进方向？
+
+
+A: 结论：PID 是线性时不变（LTI）控制器，无法适应非线性特性或参数变化；改进方向包括增益调度（Gain Scheduling）、自适应 PID、模糊 PID 和模型预测控制（MPC）。
+
+
+详细解释：
+
+
+- **增益调度**：根据工作点（如转速、温度）切换一组预调参数，简单有效。
+- **自适应 PID**：在线识别系统参数并更新 Kp/Ki/Kd，如 MRAC（模型参考自适应控制）。
+- **模糊 PID**：用模糊逻辑根据误差和误差变化率动态调整参数，不需要精确模型。
+- **MPC（模型预测控制）**：显式建模系统，在线优化未来控制序列，可处理约束，适合复杂多变量系统。
+
+
+常见坑/追问：
+
+
+- 增益调度切换参数时注意平滑过渡，避免控制量突变。
+- 追问：MPC 的缺点？计算量大，实时性要求高的场景需要高性能硬件或简化模型。

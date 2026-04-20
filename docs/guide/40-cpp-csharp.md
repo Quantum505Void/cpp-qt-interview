@@ -447,3 +447,219 @@ return result;
 
 - C++ 程序员写 C# 常见错误：忘记 `await` 导致异步方法同步执行，或用 `.Result` 死锁。
 - C# 的 `string` 是不可变引用类型，但 `==` 重载为值比较，行为像 C++ 的 `std::string`。
+
+
+### Q9: ⭐🟡 C++ 和 C# 在内存管理上的根本区别是什么？
+
+
+A: 结论：C++ 是手动/RAII 管理，程序员精确控制生命周期；C# 是垃圾回收（GC），运行时自动回收，但 GC 暂停（STW）是实时性场景的隐患。
+
+
+详细解释：
+
+
+- C++：RAII + 智能指针，析构确定性执行，无 GC 暂停，适合实时系统。
+- C# GC：标记-清除-压缩，GC 暂停可能达数毫秒到数十毫秒（Full GC）。
+- C# 有 `IDisposable` + `using` 块用于确定性释放非托管资源（如文件句柄）。
+- C# `unsafe` 块可以用裸指针，但需要 `fixed` 固定对象防止 GC 移动。
+
+
+代码示例：
+
+
+```csharp
+// C# 确定性释放
+using (var fs = new FileStream("file.txt", FileMode.Open)) {
+    // fs 超出 using 块自动 Dispose
+}
+```
+
+
+常见坑/追问：
+
+
+- C# 程序员常忘记 `Dispose`，导致文件句柄/网络连接泄漏。
+- 追问：C# 的 `ValueTask` 和 `Task` 区别？`ValueTask` 避免 heap 分配，适合高频短暂异步。
+
+
+---
+
+
+### Q10: ⭐🟡 C++ 的模板和 C# 的泛型有什么本质区别？
+
+
+A: 结论：C++ 模板是编译期代码生成（每种类型一份实例化），C# 泛型是运行时特化（CLR 保留类型信息，值类型各自特化，引用类型共享代码）。
+
+
+详细解释：
+
+
+- C++ 模板：编译期展开，可做任意元编程，但编译慢、二进制膨胀、错误信息难看。
+- C# 泛型：JIT 在运行时根据类型参数生成代码，无二进制膨胀，类型安全，错误信息清晰。
+- C++ 模板可用非类型参数（如 `template<int N>`），C# 泛型只支持类型参数。
+- C# 泛型约束（`where T : IComparable`）对应 C++20 Concepts。
+
+
+常见坑/追问：
+
+
+- C++ `std::vector<int>` 和 `std::vector<double>` 是完全独立的类型；C# `List<int>` 和 `List<double>` 在 CLR 中各自特化，`List<object>` 共享。
+- 追问：C# 泛型能做元编程吗？能力有限，不如 C++ 模板；复杂元编程通常用反射或 Roslyn 源生成器。
+
+
+---
+
+
+### Q11: ⭐🟡 C++ 和 C# 在多线程编程模型上有什么差异？
+
+
+A: 结论：C++ 提供底层线程原语（`std::thread`、`mutex`、`condition_variable`、`atomic`）；C# 有更高层的 `Task`/`async-await`/`ThreadPool`，并发编程体验更友好，但底层控制能力弱于 C++。
+
+
+详细解释：
+
+
+- C++：`std::thread` 直接映射 OS 线程，精确控制，适合实时任务。
+- C#：`Task` 基于线程池，`async/await` 让异步代码看起来像同步，适合 IO 密集型场景。
+- C++ 原子操作支持内存序（`memory_order_acquire` 等），C# 的 `Interlocked` 是全屏障，性能略差。
+- C# 有 `CancellationToken` 机制做协作取消，C++ 需手动实现。
+
+
+代码示例：
+
+
+```cpp
+// C++
+std::jthread worker([](std::stop_token st) {
+    while (!st.stop_requested()) { doWork(); }
+});
+```
+
+
+常见坑/追问：
+
+
+- C# `async void` 是陷阱，异常无法被外部捕获，尽量用 `async Task`。
+- 追问：C++ 的协程（`co_await`）和 C# 的 `async/await` 有什么异同？语义类似，但 C++ 协程更底层，需要自实现 promise/awaitable，灵活性更高。
+
+
+---
+
+
+### Q12: ⭐🟡 C++ 和 C# 在异常处理上有什么不同？
+
+
+A: 结论：C++ 异常有零开销抽象（无异常时几乎没有运行时开销）但抛出时开销大；C# 异常与 CLR 深度集成，有更完善的栈展开和类型体系，但不应用于控制流。
+
+
+详细解释：
+
+
+- C++ 异常：`noexcept` 声明可让编译器优化，异常抛出时栈展开调用所有析构函数（RAII 保证）。
+- C# 异常：`try/catch/finally`，`finally` 保证执行；有 `AggregateException` 用于聚合多个异步异常。
+- C++ 中大量代码（嵌入式、游戏引擎）禁用异常，改用错误码或 `std::expected`（C++23）。
+- C# 异常不应用于正常控制流（如用异常代替 `if`），有严重性能问题。
+
+
+代码示例：
+
+
+```cpp
+// C++23 expected（无异常风格）
+std::expected<int, std::string> parse(const std::string& s) {
+    if (s.empty()) return std::unexpected("empty input");
+    return std::stoi(s);
+}
+```
+
+
+常见坑/追问：
+
+
+- C++ 析构函数不应抛异常（栈展开中二次异常 → `std::terminate()`）。
+- 追问：C# 的 `ExceptionFilter`（`when` 子句）作用是什么？在捕获前判断条件，不展开栈，适合日志记录。
+
+
+---
+
+
+### Q13: ⭐🔴 C++ 和 C# 互操作（interop）有哪些常见方式？
+
+
+A: 结论：C# 调用 C++：P/Invoke（调用 C 接口的 DLL）、C++/CLI（托管/非托管混合）、COM 互操作；C++ 调用 C#：通过 COM、CLR Hosting API 或 .NET Native AOT 导出。
+
+
+详细解释：
+
+
+- **P/Invoke**：`[DllImport("mylib.dll")]` 调用 C 风格导出函数，需注意数据 marshaling（字符串、结构体布局）。
+- **C++/CLI**：编写托管 C++ 代码作为桥接层，可直接访问托管和非托管对象，适合大型 C++ 库包装。
+- **COM**：较重，需注册和接口定义，适合跨语言跨进程。
+- **.NET 8+ Native AOT**：可导出 C 接口供 C++ 调用，零运行时依赖。
+
+
+代码示例：
+
+
+```csharp
+// P/Invoke
+[DllImport("mylib.dll", CallingConvention = CallingConvention.Cdecl)]
+static extern int add(int a, int b);
+```
+
+
+常见坑/追问：
+
+
+- P/Invoke 传 `string` 时默认 marshaling 是 ANSI，跨平台要显式指定 `CharSet.Unicode`。
+- 追问：P/Invoke 和 C++/CLI 如何选择？简单函数调用用 P/Invoke；需要频繁交互或使用 C++ 类时用 C++/CLI。
+
+
+---
+
+
+### Q14: ⭐🟡 C++ 和 C# 在属性/反射能力上有何差异？
+
+
+A: 结论：C# 有强大的运行时反射（`System.Reflection`）和特性（`Attribute`）体系；C++ 无原生反射，需要宏、模板元编程或外部工具（如 RTTR、Qt MOC）模拟。
+
+
+详细解释：
+
+
+- C# 可在运行时枚举类型的字段、方法、特性，用于序列化、ORM、依赖注入等。
+- C++ `typeid`/`dynamic_cast` 是 RTTI，能力极有限，只知道类型名和继承关系。
+- Qt 通过 MOC（元对象编译器）生成反射代码，支持属性、信号槽、动态调用。
+- C++ 反射提案（P2996 等）在 C++26 讨论中，目前未标准化。
+
+
+常见坑/追问：
+
+
+- C# 反射有性能开销，高频场景用 source generator 或表达式树代替。
+- 追问：Qt 的 `QMetaObject::invokeMethod` 是什么原理？MOC 生成的元数据表 + 字符串查找，运行时动态调用槽函数。
+
+
+---
+
+
+### Q15: ⭐🔴 如果项目同时有 C++ 核心算法和 C# UI，如何设计架构？
+
+
+A: 结论：将 C++ 算法封装为独立进程（IPC 通信）或 DLL（P/Invoke/C++/CLI），C# 负责 UI 和业务逻辑；接口层保持最小化，数据通过 protobuf/JSON 或共享内存传递。
+
+
+详细解释：
+
+
+- **进程分离**：C++ 后端进程 + C# 前端进程，通过 Named Pipe/Socket/IPC 通信，解耦最彻底，稳定性好。
+- **DLL 方式**：C++ 编译为 DLL，C# 通过 P/Invoke 或 C++/CLI 调用，延迟更低，适合高频数据交互。
+- **数据序列化**：Protobuf 适合跨语言跨进程；共享内存适合大数据量低延迟。
+- 接口版本管理：定义稳定的 C 接口（不暴露 C++ 类），降低二进制兼容性风险。
+
+
+常见坑/追问：
+
+
+- 直接暴露 C++ 类给 C# 是噩梦，ABI 不稳定，用纯 C 接口封装一层。
+- 追问：进程分离方案的失败模式怎么处理？C++ 进程崩溃 C# 检测到连接断开后自动重启，保证 UI 不崩。

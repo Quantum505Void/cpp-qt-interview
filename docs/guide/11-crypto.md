@@ -314,3 +314,164 @@ auto hash = Argon2(password, salt, /*memoryCost*/65536, /*timeCost*/3);
 
 - “数据库不出网所以明文/快哈希也行”是典型事故前夜发言。
 - 追问：登录时怎么验证？重新用同样参数计算并比对结果。
+
+
+### Q11: ⭐🟡 数字签名和消息认证码（HMAC）有什么区别？
+
+
+A: 结论：HMAC 是对称的（双方共享密钥），只能验证消息完整性和来源，不能证明是"谁"发的（因为双方都有密钥）；数字签名是非对称的（私钥签名，公钥验证），可实现不可否认性。
+
+
+详细解释：
+
+
+- HMAC：`HMAC(key, message)` → MAC 值，接收方用相同 key 验证，适合服务内部通信。
+- 数字签名：发送方用私钥签名，任何人用公钥验证，适合证书、代码签名等公开场景。
+- HMAC 性能优于数字签名（对称 vs 非对称）。
+- 不可否认性：HMAC 无法区分是 A 发的还是 B 发的（双方都有 key）；数字签名私钥唯一，具有不可否认性。
+
+
+代码示例：
+
+
+```cpp
+// OpenSSL HMAC-SHA256
+unsigned char result[EVP_MAX_MD_SIZE];
+unsigned int len;
+HMAC(EVP_sha256(), key, key_len, msg, msg_len, result, &len);
+```
+
+
+常见坑/追问：
+
+
+- HMAC 密钥泄漏 = 完全失效；数字签名私钥泄漏 = 完全失效，但公钥可以自由分发。
+- 追问：JWT 用哪种？HS256 用 HMAC，RS256 用 RSA 数字签名，ES256 用 ECDSA。
+
+
+---
+
+
+### Q12: ⭐🔴 TLS 握手过程是什么？C++ 程序如何使用 TLS？
+
+
+A: 结论：TLS 握手包括协商密码套件、交换证书、验证身份、协商会话密钥几个阶段；C++ 通过 OpenSSL 的 `SSL_CTX`/`SSL` API 或 Qt 的 `QSslSocket` 使用 TLS。
+
+
+详细解释：
+
+
+- TLS 1.3 握手（简化）：ClientHello → ServerHello + Certificate + CertificateVerify → Finished → 开始加密通信。
+- 证书验证：客户端验证服务器证书链直到可信根 CA。
+- 会话密钥：使用 ECDHE 密钥交换，每次连接生成新密钥（前向保密）。
+- Qt 中：`QSslSocket::connectToHostEncrypted()` 封装了握手过程，`sslErrors` 信号处理证书验证失败。
+
+
+代码示例：
+
+
+```cpp
+// Qt TLS
+QSslSocket* socket = new QSslSocket(this);
+connect(socket, &QSslSocket::encrypted, this, &MyClass::onConnected);
+connect(socket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
+        this, [socket](const QList<QSslError>& errors) {
+    // 生产环境不应忽略错误！
+    socket->ignoreSslErrors(errors); // 仅测试
+});
+socket->connectToHostEncrypted("example.com", 443);
+```
+
+
+常见坑/追问：
+
+
+- `ignoreSslErrors()` 忽略证书错误是严重安全漏洞，生产环境绝不允许。
+- 追问：自签名证书如何在 Qt 中使用？手动加载 CA 证书到 `QSslConfiguration::addCaCertificate`。
+
+
+---
+
+
+### Q13: ⭐🟡 对称加密中 IV（初始化向量）的作用是什么？
+
+
+A: 结论：IV 保证相同明文在不同加密调用中产生不同密文，防止攻击者通过密文相同推断明文相同；IV 无需保密，但必须每次随机生成且不可重用。
+
+
+详细解释：
+
+
+- 没有 IV（ECB 模式）：相同明文块产生相同密文块，数据模式泄露（著名的 Linux Penguin 图片例子）。
+- CBC 模式：IV XOR 明文后再加密，每次不同 IV 产生完全不同的密文链。
+- IV 要求：随机（非零、非可预测），每次加密新生成，与密文一起传输给接收方。
+- GCM 模式：IV 又称 Nonce，12 字节最优，GCM Nonce 重用会完全破坏安全性（比 CBC 更严格）。
+
+
+常见坑/追问：
+
+
+- GCM Nonce 重用是最危险的错误之一，直接泄露认证密钥。
+- 追问：IV 和 Salt 的区别？IV 用于加密模式初始化，Salt 用于密钥派生（KDF）或密码哈希，概念不同但目的类似（防重放/防彩虹表）。
+
+
+---
+
+
+### Q14: ⭐🔴 如何在 C++ 中安全地存储和使用密钥？
+
+
+A: 结论：密钥不应硬编码在源码或二进制中；生产环境应使用密钥管理系统（KMS/HSM）、OS 密钥存储（Keychain/DPAPI/Linux Keyring）或环境变量注入，并确保密钥用后及时清零。
+
+
+详细解释：
+
+
+- **硬编码密钥**：逆向工程即可提取，是严重安全漏洞。
+- **OS 密钥存储**：macOS Keychain、Windows DPAPI/Credential Manager、Linux `libsecret`，API 调用复杂但安全。
+- **环境变量**：比硬编码安全，但进程内存仍可读，不适合高安全场景。
+- **密钥清零**：用完后用 `OPENSSL_cleanse()` 或 `explicit_bzero()` 清零内存，防止 core dump 泄露。
+
+
+代码示例：
+
+
+```cpp
+// 密钥清零
+std::vector<uint8_t> key(32);
+// ... 使用密钥 ...
+OPENSSL_cleanse(key.data(), key.size());
+// 注意：普通 memset 可能被编译器优化掉！
+```
+
+
+常见坑/追问：
+
+
+- `memset` 清零可能被优化掉（dead store elimination），必须用 `explicit_bzero`/`OPENSSL_cleanse`。
+- 追问：什么是密钥轮换（Key Rotation）？定期更换加密密钥，旧密钥只用于解密历史数据，降低密钥泄露的影响范围。
+
+
+---
+
+
+### Q15: ⭐🔴 什么是前向保密（Perfect Forward Secrecy）？为什么重要？
+
+
+A: 结论：前向保密指即使长期私钥（如服务器证书私钥）泄露，过去的加密通信也无法被解密；实现方式是每次会话使用临时 ECDHE 密钥协商，不使用静态私钥加密会话密钥。
+
+
+详细解释：
+
+
+- 无 PFS（如 RSA 密钥交换）：攻击者录制所有加密流量，一旦拿到私钥即可解密全部历史通信。
+- 有 PFS（ECDHE）：每次握手生成临时密钥对，会话密钥不依赖服务器私钥，临时密钥用完即丢弃。
+- TLS 1.3：强制使用 ECDHE，移除了所有非 PFS 密钥交换算法。
+- TLS 1.2：需要显式选择 ECDHE 密码套件（如 `ECDHE-RSA-AES256-GCM-SHA384`）。
+
+
+常见坑/追问：
+
+
+- TLS 1.2 中 RSA 密钥交换（`TLS_RSA_WITH_*`）没有 PFS，应从密码套件中移除。
+- 追问：PFS 和证书安全性有什么关系？证书用于身份认证，ECDHE 用于密钥协商，两者解决不同问题；PFS 保护通信内容，证书保护身份。

@@ -352,3 +352,236 @@ electron-builder --win --mac # 打包签名
 
 
 ---
+
+
+### Q9: ⭐🟡 Electron 应用如何做安全加固？
+
+
+A: 结论：核心安全设置是禁用 `nodeIntegration`、启用 `contextIsolation`、使用 CSP，以及通过 `preload` 脚本最小化暴露 API。
+
+
+详细解释：
+
+
+- `nodeIntegration: false`：渲染进程无法直接访问 Node.js API，防止 XSS 攻击升级为代码执行。
+- `contextIsolation: true`：preload 脚本和页面 JS 运行在不同 context，无法互相污染。
+- `preload` 只通过 `contextBridge.exposeInMainWorld` 暴露必要 API，最小权限原则。
+- Content Security Policy（CSP）防止外部脚本注入。
+
+
+代码示例：
+
+
+```js
+// main.js
+new BrowserWindow({
+  webPreferences: {
+    nodeIntegration: false,
+    contextIsolation: true,
+    preload: path.join(__dirname, 'preload.js')
+  }
+});
+// preload.js
+contextBridge.exposeInMainWorld('api', {
+  readFile: (p) => ipcRenderer.invoke('read-file', p)
+});
+```
+
+
+常见坑/追问：
+
+
+- 老版本 Electron 默认开启 `nodeIntegration`，升级后行为改变，需要检查。
+- 追问：`sandbox: true` 的作用？渲染进程进入 Chromium 沙箱，进一步限制系统调用。
+
+
+---
+
+
+### Q10: ⭐🟡 Electron 应用如何实现进程间大数据传输？
+
+
+A: 结论：小数据用 IPC（`ipcMain`/`ipcRenderer`）；大数据（如图像、音频）用 `SharedArrayBuffer`、`MessageChannelMain` 或写临时文件，避免 JSON 序列化大对象。
+
+
+详细解释：
+
+
+- 普通 `ipcRenderer.invoke` 会把数据 JSON 序列化后通过 IPC 传递，大数据开销极高。
+- `SharedArrayBuffer`：主进程和渲染进程共享内存，零拷贝，但需要设置 COOP/COEP HTTP 头。
+- `MessageChannelMain`：建立直接消息通道，支持 `Transferable` 对象（ArrayBuffer 转移所有权，零拷贝）。
+- 图片等资源：写到 app 临时目录，渲染进程用 `file://` 协议读取，简单可靠。
+
+
+常见坑/追问：
+
+
+- `SharedArrayBuffer` 需要页面设置跨域隔离（COOP/COEP），否则浏览器禁用。
+- 追问：`ipcRenderer.sendSync` 有什么风险？同步调用会阻塞渲染进程，导致 UI 冻结，应避免使用。
+
+
+---
+
+
+### Q11: ⭐🟡 Electron vs Qt 在桌面开发上如何选型？
+
+
+A: 结论：Electron 适合 Web 技术栈团队、快速迭代和跨平台 UI 一致性需求；Qt 适合性能敏感、需要原生系统集成、硬件交互或长期维护的工业/嵌入式项目。
+
+
+详细解释：
+
+
+- **Electron 优势**：Web 生态（npm 包）、热重载、招聘容易、UI 高度可定制。
+- **Electron 劣势**：内存占用大（Chromium + Node）、冷启动慢、无法做实时控制。
+- **Qt 优势**：原生性能、精细线程控制、丰富硬件接口（串口、CAN、USB）、成熟的信号槽架构。
+- **Qt 劣势**：UI 开发效率低于 Web、学习曲线陡、商业授权成本。
+
+
+常见坑/追问：
+
+
+- 用 Electron 做串口/CAN 通信需要 Node.js 原生模块（`serialport`），跨平台编译麻烦。
+- 追问：有没有中间方案？Tauri（Rust + 系统 WebView），包小、内存省，但生态不如 Electron。
+
+
+---
+
+
+### Q12: ⭐🔴 Electron 应用如何处理主进程崩溃？
+
+
+A: 结论：监听 `app.on('child-process-gone')` 和渲染进程的 `render-process-gone` 事件，记录崩溃信息（`crashReporter`），根据策略决定重建窗口还是退出。
+
+
+详细解释：
+
+
+- `crashReporter.start()` 可以收集 minidump 并上报到服务器（Sentry、自建服务）。
+- 渲染进程崩溃：`render-process-gone` 事件，可以重新加载（`win.reload()`）或重建窗口。
+- 主进程崩溃：整个应用退出，靠外部进程守卫（systemd、pm2）重启。
+- 区分崩溃原因：`reason` 字段包含 `crashed`/`killed`/`oom` 等。
+
+
+代码示例：
+
+
+```js
+win.webContents.on('render-process-gone', (event, details) => {
+  console.error('Renderer crashed:', details.reason);
+  if (details.reason === 'crashed') {
+    win.reload(); // 自动恢复
+  }
+});
+```
+
+
+常见坑/追问：
+
+
+- 无限重载循环：如果崩溃原因是代码 bug，重载只会反复崩溃，需要加重试计数限制。
+- 追问：如何区分 OOM 崩溃和代码 bug 崩溃？`details.reason === 'oom'` 时增加内存限制或减少缓存。
+
+
+---
+
+
+### Q13: ⭐🟡 Electron 如何实现应用内自动更新？
+
+
+A: 结论：使用 `electron-updater`（`electron-builder` 配套），指向更新服务器，后台检查、下载、安装，用户同意后重启应用完成更新。
+
+
+详细解释：
+
+
+- 配置 `publish` 字段指向 GitHub Releases 或自定义服务器（S3、Nginx）。
+- `autoUpdater.checkForUpdatesAndNotify()` 一行代码搞定检查 + 通知。
+- 下载完成后 `autoUpdater.on('update-downloaded')` 触发，提示用户并调用 `quitAndInstall()`。
+- 更新包需要代码签名（Windows Authenticode、macOS Developer ID），否则系统阻止安装。
+
+
+代码示例：
+
+
+```js
+const { autoUpdater } = require('electron-updater');
+autoUpdater.on('update-downloaded', () => {
+  dialog.showMessageBox({ message: '更新已下载，重启以安装' })
+    .then(() => autoUpdater.quitAndInstall());
+});
+autoUpdater.checkForUpdatesAndNotify();
+```
+
+
+常见坑/追问：
+
+
+- macOS 未公证（Notarization）的更新包会被 Gatekeeper 拦截。
+- 追问：如何支持强制更新（用户不能跳过）？隐藏"稍后更新"按钮，直接调用 `quitAndInstall()`。
+
+
+---
+
+
+### Q14: ⭐🔴 Electron 应用内存占用大怎么优化？
+
+
+A: 结论：优化方向：减少 `BrowserWindow` 数量、隐藏窗口时降低渲染优先级、限制 V8 heap、使用 `--max-old-space-size` 限制 Node 内存、定期释放不用的渲染进程。
+
+
+详细解释：
+
+
+- 每个 `BrowserWindow` 是独立渲染进程，多窗口内存成倍增加。
+- `win.webContents.setBackgroundThrottling(true)`：隐藏时降低渲染频率，节省 CPU/内存。
+- 渲染进程内存泄漏：Chrome DevTools 内存快照分析，找 Detached DOM 和闭包引用。
+- 主进程 Node 内存：设置 `--max-old-space-size`，避免无限缓存。
+- 不用的窗口调 `win.destroy()` 而非 `win.hide()`，彻底释放渲染进程。
+
+
+常见坑/追问：
+
+
+- `win.hide()` 窗口依然存在，渲染进程仍在消耗内存。
+- 追问：如何测量 Electron 应用实际内存？`process.memoryUsage()`（Node）+ `performance.measureUserAgentSpecificMemory()`（渲染）。
+
+
+---
+
+
+### Q15: ⭐🔴 Electron 的 `contextBridge` 设计原则和常见误用？
+
+
+A: 结论：`contextBridge` 只应暴露最小必要的、类型安全的 API，不应暴露原始 IPC 通道或 Node.js 模块，否则形同虚设。
+
+
+详细解释：
+
+
+- 错误做法：`exposeInMainWorld('ipc', ipcRenderer)` → 页面可以发送任意 IPC 消息，绕过所有权限控制。
+- 正确做法：暴露具体业务函数，在 preload 侧做参数校验，只允许已知操作。
+- 暴露的函数参数和返回值会被 `structuredClone` 序列化，不能传递函数/DOM 节点。
+- 每个 API 都应在主进程侧再做一次鉴权，不信任渲染进程的输入。
+
+
+代码示例：
+
+
+```js
+// 正确：暴露具体操作，不暴露原始通道
+contextBridge.exposeInMainWorld('fileApi', {
+  // 只允许读取 downloads 目录
+  readDownload: (filename) => {
+    if (!/^[\w\-.]+$/.test(filename)) throw new Error('Invalid filename');
+    return ipcRenderer.invoke('read-download', filename);
+  }
+});
+```
+
+
+常见坑/追问：
+
+
+- 暴露 `ipcRenderer.invoke` 等原始方法相当于开了后门，任何 XSS 都能执行任意主进程代码。
+- 追问：如何防止渲染进程伪造消息身份？主进程通过 `event.senderFrame.url` 验证来源页面。
