@@ -163,6 +163,15 @@ export default defineConfig({
           { text: '45. 跨平台桌面开发实践', link: '/guide/45-cross-platform' },
         ]
       },
+      {
+        text: 'AI / 大模型',
+        collapsed: false,
+        items: [
+          { text: '46. LLM 应用开发基础', link: '/guide/46-llm-basics' },
+          { text: '47. 机器学习模型优化', link: '/guide/47-ml-optimization' },
+          { text: '48. AI 工程化与生产部署', link: '/guide/48-ai-engineering' },
+        ]
+      },
     ],
 
     search: {
