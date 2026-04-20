@@ -23,9 +23,21 @@ export default defineConfig({
           ]
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          globDirectory: 'docs/.vitepress/dist',
+          globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
           navigateFallback: null,
+          navigateFallbackDenylist: [/\.(?:js|css|woff2|png|svg|ico)$/],
           runtimeCaching: [
+            {
+              // HTML 页面：NetworkFirst，离线时回退缓存
+              urlPattern: ({ request }) => request.mode === 'navigate',
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'pages-cache',
+                expiration: { maxEntries: 100, maxAgeSeconds: 86400 },
+                networkTimeoutSeconds: 5,
+              }
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
