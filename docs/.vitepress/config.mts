@@ -6,10 +6,34 @@ import markdownItMark from 'markdown-it-mark'
 
 export default withMermaid(defineConfig({
   title: 'C++ / Qt 面试题库',
-  description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化，800+ 题目',
+  description: '覆盖 C++11~20 / Qt5&6 / Linux / 数据结构算法 / AI，51章 800+ 题，系统备考 C++ 桌面开发工程师',
   base: '/cpp-qt-interview/',
   lang: 'zh-CN',
   lastUpdated: true,
+
+  // sitemap
+  sitemap: {
+    hostname: 'https://quantum505void.github.io/cpp-qt-interview/',
+  },
+
+  // SEO head meta
+  head: [
+    ['meta', { name: 'keywords', content: 'C++, Qt, 面试题, 数据结构, 算法, Linux, 并发, 多线程, 智能指针, 模板, STL, CMake, Qt6, 桌面开发' }],
+    ['meta', { name: 'author', content: 'Quantum505Void' }],
+    ['meta', { name: 'robots', content: 'index, follow' }],
+    // Open Graph
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:title', content: 'C++ / Qt 面试题库 — 800+ 题系统备考' }],
+    ['meta', { property: 'og:description', content: '覆盖 C++11~20 / Qt5&6 / Linux / 数据结构算法 / AI，51章 800+ 题，系统备考 C++ 桌面开发工程师' }],
+    ['meta', { property: 'og:image', content: 'https://quantum505void.github.io/cpp-qt-interview/logo.svg' }],
+    ['meta', { property: 'og:url', content: 'https://quantum505void.github.io/cpp-qt-interview/' }],
+    // Twitter Card
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'twitter:title', content: 'C++ / Qt 面试题库' }],
+    ['meta', { name: 'twitter:description', content: '51章 800+ 题，覆盖 C++/Qt/Linux/算法/AI' }],
+    // favicon（用 SVG）
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/cpp-qt-interview/logo.svg' }],
+  ],
 
   markdown: {
     lineNumbers: true,

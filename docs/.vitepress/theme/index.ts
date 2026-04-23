@@ -3,6 +3,9 @@ import DefaultTheme from 'vitepress/theme'
 import type { Theme } from 'vitepress'
 import { h } from 'vue'
 
+// 自定义样式
+import './custom.css'
+
 // @nolebase 插件
 import {
   NolebaseEnhancedReadabilitiesMenu,
