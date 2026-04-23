@@ -17,7 +17,9 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "mermaid": "^11.14.0",
     "vite-plugin-pwa": "^1.2.0",
-    "vitepress": "^1.6.4"
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   }
 }

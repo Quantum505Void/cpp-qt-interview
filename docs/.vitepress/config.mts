@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitepress'
 import { VitePWA } from 'vite-plugin-pwa'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   vite: {
     plugins: [
       VitePWA({
@@ -204,4 +205,4 @@ export default defineConfig({
       message: 'C++ / Qt 桌面开发工程师面试题库',
     }
   },
-})
+}))
