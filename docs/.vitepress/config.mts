@@ -92,6 +92,14 @@ export default defineConfig({
         ]
       },
       {
+        text: '🧮 数据结构与算法',
+        collapsed: false,
+        items: [
+          { text: '49. 数据结构基础与进阶', link: '/guide/49-data-structures' },
+          { text: '50. 算法与复杂度分析', link: '/guide/50-algorithms' },
+        ]
+      },
+      {
         text: '🎨 Qt 框架',
         collapsed: false,
         items: [
