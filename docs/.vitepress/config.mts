@@ -1,9 +1,35 @@
 import { defineConfig } from 'vitepress'
 import { VitePWA } from 'vite-plugin-pwa'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+import { tabsMarkdownPlugin } from 'vitepress-plugin-tabs'
+import markdownItMark from 'markdown-it-mark'
 
 export default withMermaid(defineConfig({
+  title: 'C++ / Qt 面试题库',
+  description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化，800+ 题目',
+  base: '/cpp-qt-interview/',
+  lang: 'zh-CN',
+  lastUpdated: true,
+
+  markdown: {
+    lineNumbers: true,
+    config: (md) => {
+      // Tab 切换：:::tabs 语法
+      tabsMarkdownPlugin(md)
+      // ==高亮文本== 语法
+      md.use(markdownItMark)
+    }
+  },
+
   vite: {
+    // SSR 兼容：nolebase 插件需要 noExternal
+    ssr: {
+      noExternal: [
+        '@nolebase/vitepress-plugin-enhanced-readabilities',
+        '@nolebase/vitepress-plugin-highlight-targeted-heading',
+        '@nolebase/ui',
+      ]
+    },
     plugins: [
       VitePWA({
         registerType: 'autoUpdate',
@@ -12,7 +38,7 @@ export default withMermaid(defineConfig({
         manifest: {
           name: 'C++ / Qt 面试题库',
           short_name: 'CppQt面试',
-          description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化，600+ 题目',
+          description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化，800+ 题目',
           theme_color: '#646cff',
           background_color: '#ffffff',
           display: 'standalone',
@@ -30,7 +56,6 @@ export default withMermaid(defineConfig({
           navigateFallbackDenylist: [/\.(?:js|css|woff2|png|svg|ico)$/],
           runtimeCaching: [
             {
-              // HTML 页面：NetworkFirst，离线时回退缓存
               urlPattern: ({ request }) => request.mode === 'navigate',
               handler: 'NetworkFirst',
               options: {
@@ -53,9 +78,6 @@ export default withMermaid(defineConfig({
       })
     ]
   },
-  title: 'C++ / Qt 面试题库',
-  description: '覆盖 C++11~20 / Qt5&6 / Linux / 通信 / 工程化',
-  base: '/cpp-qt-interview/',
 
   themeConfig: {
     nav: [
@@ -64,7 +86,50 @@ export default withMermaid(defineConfig({
       { text: 'C++ 核心', link: '/guide/02-cpp11-14-17' },
       { text: 'Qt 框架', link: '/guide/01-qt-basics' },
       { text: '并发/线程', link: '/guide/07-concurrency' },
+      { text: '数据结构', link: '/guide/49-data-structures-basic' },
+      { text: '算法', link: '/guide/51-algorithms' },
     ],
+
+    // 右侧目录（outline）
+    outline: {
+      level: [2, 3],
+      label: '本页目录',
+    },
+
+    // 上次更新
+    lastUpdated: {
+      text: '最后更新',
+      formatOptions: {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }
+    },
+
+    // 编辑链接
+    editLink: {
+      pattern: 'https://github.com/Quantum505Void/cpp-qt-interview/edit/main/docs/:path',
+      text: '在 GitHub 上编辑此页',
+    },
+
+    // 上下页导航
+    docFooter: {
+      prev: '上一页',
+      next: '下一页',
+    },
+
+    // 外链图标
+    externalLinkIcon: true,
+
+    // 移动端返回顶部
+    returnToTopLabel: '返回顶部',
+
+    // 移动端侧边栏
+    sidebarMenuLabel: '菜单',
+
+    // 深色模式
+    darkModeSwitchLabel: '主题',
+    lightModeSwitchTitle: '切换浅色',
+    darkModeSwitchTitle: '切换深色',
 
     sidebar: [
       {
@@ -141,15 +206,6 @@ export default withMermaid(defineConfig({
         ]
       },
       {
-        text: '🧮 数据结构与算法',
-        collapsed: false,
-        items: [
-          { text: '49. 数据结构基础', link: '/guide/49-data-structures-basic' },
-          { text: '50. 数据结构进阶', link: '/guide/50-data-structures-advanced' },
-          { text: '51. 算法与复杂度分析', link: '/guide/51-algorithms' }
-        ]
-      },
-      {
         text: '🏗️ 系统设计',
         collapsed: false,
         items: [
@@ -169,7 +225,7 @@ export default withMermaid(defineConfig({
       },
       {
         text: '🔧 扩展领域',
-        collapsed: false,
+        collapsed: true,
         items: [
           { text: '11. C++ 加密体系', link: '/guide/11-crypto' },
           { text: '27. 性能优化', link: '/guide/27-performance' },
@@ -187,7 +243,7 @@ export default withMermaid(defineConfig({
       },
       {
         text: '🤖 AI / 大模型',
-        collapsed: false,
+        collapsed: true,
         items: [
           { text: '46. LLM 应用开发基础', link: '/guide/46-llm-basics' },
           { text: '47. 机器学习模型优化', link: '/guide/47-ml-optimization' },
@@ -197,7 +253,24 @@ export default withMermaid(defineConfig({
     ],
 
     search: {
-      provider: 'local'
+      provider: 'local',
+      options: {
+        translations: {
+          button: {
+            buttonText: '搜索',
+            buttonAriaLabel: '搜索',
+          },
+          modal: {
+            noResultsText: '没有找到相关结果',
+            resetButtonTitle: '清除搜索',
+            footer: {
+              selectText: '选择',
+              navigateText: '切换',
+              closeText: '关闭',
+            }
+          }
+        }
+      }
     },
 
     socialLinks: [
@@ -205,7 +278,8 @@ export default withMermaid(defineConfig({
     ],
 
     footer: {
-      message: 'C++ / Qt 桌面开发工程师面试题库',
+      message: '51章 · 800+ 题 · 覆盖 C++/Qt/Linux/算法/AI',
+      copyright: 'MIT License · 持续更新中'
     }
   },
 }))
