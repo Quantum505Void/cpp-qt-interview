@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "C++ / Qt 面试题库"
   text: "桌面开发工程师备考"
-  tagline: 从面试小白到 offer 收割机 — 48章 · 720+ 题目 · 系统覆盖 C++/Qt/Linux/AI/工程化
+  tagline: 从面试小白到 offer 收割机 — 49章 · 746+ 题目 · 系统覆盖 C++/Qt/Linux/AI/工程化
   actions:
     - theme: brand
       text: 开始学习 →
@@ -16,10 +16,10 @@ hero:
 features:
   - icon: ⚡
     title: C++ 现代特性 · 12章
-    details: C++11~20 新特性、模板、智能指针、移动语义、内存模型完整覆盖，200+ 题目
+    details: C++11~20 新特性、模板、智能指针、移动语义、内存模型完整覆盖，180+ 题目
   - icon: 🎨
     title: Qt 框架深入 · 4章
-    details: Qt5/Qt6 核心机制、信号槽、事件系统、Qt Quick/QML 现代 UI 开发，140+ 题目
+    details: Qt5/Qt6 核心机制、信号槽、事件系统、Qt Quick/QML 现代 UI 开发，60+ 题目
   - icon: 🔧
     title: 工程化实践 · 17章
     details: CMake、Linux系统编程、通信协议、USB/HID、跨平台开发、调试分析，260+ 题目
@@ -44,4 +44,5 @@ features:
 | 项目/面试 | 3 | 项目经验、面试技巧、高频综合题 |
 | 扩展领域 | 12 | 加密、性能优化、网络、数据库、GIS、Redis、跨平台、调试分析 |
 | AI 大模型 | 3 | LLM 应用开发、模型优化、AI 工程化部署 |
-| **合计** | **48** | **720+ 题目** |
+| 数据结构与算法 | 1 | 数据结构、算法 |
+| **合计** | **49** | **746+ 题目** |

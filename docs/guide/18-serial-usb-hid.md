@@ -1,8 +1,10 @@
 # 18. 串口与 USB/HID 通信
 
+> 难度分布：🟢 入门 1 题 · 🟡 进阶 9 题 · 🔴 高难 5 题
 
-↑ 回到目录
+[[toc]]
 
+---
 
 sequenceDiagram
     participant H as Host
@@ -469,3 +471,14 @@ connect(&watcher, &QFileSystemWatcher::directoryChanged, this, [this](){
 
 - 设备插入后立刻打开可能失败（驱动还未就绪），需加短暂延迟再重试。
 - 追问：如何区分同一型号的多个 USB 设备？使用设备序列号（`serialNumber()`）或 USB 路径（`/dev/serial/by-path/`）而非端口名称。
+
+---
+
+## 📊 本章统计
+
+| 指标 | 数量 |
+|------|------|
+| 总题目数 | 15 |
+| 🟢 入门 | 1 |
+| 🟡 进阶 | 9 |
+| 🔴 高难 | 5 |
