@@ -96,8 +96,9 @@ export default withMermaid(defineConfig({
         text: '🧮 数据结构与算法',
         collapsed: false,
         items: [
-          { text: '49. 数据结构基础与进阶', link: '/guide/49-data-structures' },
-          { text: '50. 算法与复杂度分析', link: '/guide/50-algorithms' },
+          { text: '49. 数据结构基础', link: '/guide/49-data-structures-basic' },
+          { text: '50. 数据结构进阶', link: '/guide/50-data-structures-advanced' },
+          { text: '51. 算法与复杂度分析', link: '/guide/51-algorithms' },
         ]
       },
       {
@@ -143,7 +144,9 @@ export default withMermaid(defineConfig({
         text: '🧮 数据结构与算法',
         collapsed: false,
         items: [
-          { text: '49. 数据结构基础与进阶', link: '/guide/49-data-structures' }
+          { text: '49. 数据结构基础', link: '/guide/49-data-structures-basic' },
+          { text: '50. 数据结构进阶', link: '/guide/50-data-structures-advanced' },
+          { text: '51. 算法与复杂度分析', link: '/guide/51-algorithms' }
         ]
       },
       {

@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "C++ / Qt 面试题库"
   text: "桌面开发工程师备考"
-  tagline: 从面试小白到 offer 收割机 — 49章 · 746+ 题目 · 系统覆盖 C++/Qt/Linux/AI/工程化
+  tagline: 从面试小白到 offer 收割机 — 51章 · 798+ 题目 · 系统覆盖 C++/Qt/Linux/AI/工程化
   actions:
     - theme: brand
       text: 开始学习 →
