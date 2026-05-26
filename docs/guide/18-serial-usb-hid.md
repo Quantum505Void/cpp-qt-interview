@@ -1,0 +1,539 @@
+# 18. 串口与 USB/HID 通信
+
+> 难度分布：🟢 入门 1 题 · 🟡 进阶 9 题 · 🔴 高难 5 题
+
+[[toc]]
+
+---
+
+sequenceDiagram
+    participant H as Host
+    participant D as Device
+    H->>D: USB Reset
+    D->>H: Device Descriptor
+    H->>D: Set Address
+    H->>D: Get Configuration Descriptor
+    H->>D: Set Configuration
+    Note over H,D: 枚举完成，可正常通信
+
+
+## 一、串口通信
+
+### Q1: ⭐🟢 串口通信最核心的参数有哪些？
+
+
+A: 结论：串口最核心的是波特率、数据位、停止位、校验位、流控。两端这些参数不一致，通信要么乱码要么根本不通。
+
+
+详细解释：
+
+
+- 常见配置：115200, 8N1。
+- 流控分软件流控（XON/XOFF）和硬件流控（RTS/CTS）。
+- 工业场景里还要区分 RS-232、RS-485 的电气层。
+
+
+代码示例：
+
+
+```cpp
+QSerialPort port;
+port.setBaudRate(QSerialPort::Baud115200);
+port.setDataBits(QSerialPort::Data8);
+port.setParity(QSerialPort::NoParity);
+port.setStopBits(QSerialPort::OneStop);
+```
+
+
+常见坑/追问：
+
+
+- 波特率对了不代表就通，校验和流控也要一致。
+- 追问：8N1 是什么意思？8 数据位、No parity、1 停止位。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q2: ⭐🟡 串口为什么会出现粘包、拆包、半包？
+
+
+A: 结论：因为串口本质是连续字节流，没有天然消息边界。应用层必须自己定义帧格式来切分数据。
+
+
+详细解释：
+
+
+- 一次 `readyRead` 不代表收到完整一帧。
+- 一帧数据可能被拆成多次到达，也可能多帧挤在一起。
+- 常见做法是用固定头 + 长度 + 校验，或结束符协议。
+
+
+常见坑/追问：
+
+
+- 不要拿 `readAll()` 直接当一整帧处理。
+- 追问：串口和 TCP 在这一点像吗？很像，都是字节流语义。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q3: ⭐🟡 termios 在 Linux 串口编程里负责什么？
+
+
+A: 结论：`termios` 用来配置串口设备的波特率、数据格式、超时、阻塞行为等。Linux 下做原生串口编程几乎绕不开它。
+
+
+详细解释：
+
+
+- 打开设备通常是 `/dev/ttyS`、`/dev/ttyUSB`、`/dev/ttyACM*`。
+- `tcgetattr/tcsetattr` 获取和设置属性。
+- raw mode 可关闭行缓冲和特殊字符处理。
+
+
+代码示例：
+
+
+```cpp
+int fd = open("/dev/ttyUSB0", O_RDWR | O_NOCTTY);
+struct termios tio{};
+tcgetattr(fd, &tio);
+cfsetispeed(&tio, B115200);
+cfsetospeed(&tio, B115200);
+tio.c_cflag |= (CLOCAL | CREAD);
+tcsetattr(fd, TCSANOW, &tio);
+```
+
+
+常见坑/追问：
+
+
+- 忘了设置 raw mode，`
+
+
+`、回显、特殊字符会把数据流搞乱。
+
+
+- 追问：`O_NOCTTY` 有什么用？避免设备成为控制终端。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q4: ⭐🟡 RS-232、RS-485、TTL 串口有什么区别？
+
+
+A: 结论：它们主要区别在电平标准、传输距离、抗干扰能力和拓扑。面试时别把“串口协议”和“电气层”混了。
+
+
+详细解释：
+
+
+- TTL：MCU 板级常见，不能直接长距离传输。
+- RS-232：点对点，电平与 TTL 不同。
+- RS-485：差分传输、抗干扰强、适合总线多节点、远距离工业场景。
+- 上位机常通过 USB 转串口芯片接入这些接口。
+
+
+常见坑/追问：
+
+
+- TTL 不能直接怼 RS-232/485，电平不兼容可能直接烧。
+- 追问：485 为什么适合工业现场？差分、距离远、抗干扰强。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q5: ⭐🟡 USB CDC、USB HID 分别是什么？
+
+
+A: 结论：USB CDC 常把设备抽象成虚拟串口；USB HID 是人机接口类，免驱特性强、报文小、轮询式常见。二者在上位机访问方式上差异很大。
+
+
+详细解释：
+
+
+- CDC 设备在 Linux 上常表现为 `/dev/ttyACM*`。
+- HID 设备常通过 `/dev/hidraw*` 或 libhidapi 访问。
+- HID 不需要自定义驱动的门槛低，但 payload 和报文组织有其限制。
+
+
+常见坑/追问：
+
+
+- “USB 设备就是串口”是错的，USB 类别很多。
+- 追问：为什么一些设备选 HID？免驱、跨平台、部署方便。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+
+## 二、USB 协议
+
+### Q6: ⭐🔴 HID 报告（Report）是什么？
+
+
+A: 结论：HID 通过 report descriptor 描述数据格式，主机和设备按 report 结构收发数据。你看到的每次读写通常都是一个 report。
+
+
+详细解释：
+
+
+- report descriptor 描述字段含义、长度、usage。
+- 可能有 input report、output report、feature report。
+- 有些设备第一个字节是 report ID。
+- 上位机读写时必须严格按报告格式组织字节。
+
+
+代码示例：
+
+
+```cpp
+// hidapi 伪代码
+unsigned char buf[65] = {0}; // buf[0] 常为 report ID
+hid_write(handle, buf, sizeof(buf));
+```
+
+
+常见坑/追问：
+
+
+- 忽略 report ID 会导致长度和协议全部错位。
+- 追问：为什么 HID 报文常是固定长度？因为报告描述和端点规格决定了传输格式。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q7: 🟡 Qt 中怎么做串口通信？
+
+
+A: 结论：Qt 里通常用 `QSerialPort`，配合信号槽异步收发，界面程序里非常方便。它封装了跨平台差异。
+
+
+详细解释：
+
+
+- 打开前设置端口名和参数。
+- 用 `readyRead` 收包。
+- 注意拆包缓存和线程模型。
+- 可以通过 `QSerialPortInfo` 枚举设备。
+
+
+代码示例：
+
+
+```cpp
+connect(&port, &QSerialPort::readyRead, this, [this] {
+    buffer_ += port.readAll();
+    parseFrames();
+});
+```
+
+
+常见坑/追问：
+
+
+- `waitForReadyRead` 在 GUI 线程里乱用可能卡界面。
+- 追问：设备插拔怎么处理？监听枚举变化或定时扫描重连。
+
+> 💡 **面试追问**：线程池的核心参数如何调优？线程数设多少合适？
+
+
+
+### Q8: ⭐🟡 串口/USB 通信排障一般怎么做？
+
+
+A: 结论：按“物理层 → 驱动枚举 → 参数配置 → 原始字节流 → 协议解析”逐层排。不要一上来就怀疑代码。
+
+
+详细解释：
+
+
+- 先确认设备枚举是否存在：`dmesg`、`lsusb`、`/dev/tty*`。
+- 再确认权限和占用。
+- 用串口工具/抓包工具先看原始数据。
+- 最后才看应用层组帧、CRC、状态机。
+
+
+常见坑/追问：
+
+
+- 上位机收不到数据，可能只是波特率/校验位错了，不一定是程序 bug。
+- 追问：USB HID 怎么抓包？Linux 下可看 `usbmon`、Wireshark，Windows 可用 USBPcap。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q9: 🟡 非阻塞串口读写要注意什么？
+
+
+A: 结论：非阻塞模式下 `read/write` 可能立刻返回 EAGAIN，需要配合 `select/poll/epoll` 或事件通知机制使用。不能按阻塞思维写循环。
+
+
+详细解释：
+
+
+- 非阻塞适合集成进事件循环。
+- 写串口也可能短写，尤其底层缓冲满时。
+- 工业程序要考虑超时和重发策略。
+
+
+常见坑/追问：
+
+
+- while 死循环重试会把 CPU 烧高。
+- 追问：GUI 程序为什么偏爱异步信号槽模式？因为不会阻塞主线程。
+
+> 💡 **面试追问**：线程池的核心参数如何调优？线程数设多少合适？
+
+
+
+### Q10: ⭐🔴 串口和 USB/HID 项目中最容易踩的坑是什么？
+
+
+A: 结论：最容易踩的坑是把“链路通了”和“协议通了”混为一谈。物理连接、驱动识别、字节流、帧解析、业务状态机，这五层可能分别出错。
+
+
+详细解释：
+
+
+- 串口能打开不代表参数对。
+- 有原始数据不代表拆包和 CRC 对。
+- CRC 对了不代表命令时序和设备状态满足要求。
+- USB 枚举成功也不代表 report 格式写对。
+
+
+常见坑/追问：
+
+
+- 现场排障时一定保留十六进制原始日志，这是救命绳。
+- 追问：为什么调设备经常“换个工具就好了”？因为工具默认参数/时序/流控可能和你程序不同。
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+
+## 三、HID 设备
+
+### Q11: ⭐🟡 QSerialPort 的 `readyRead` 信号和直接 `waitForReadyRead` 的区别？
+
+
+A: 结论：`readyRead` 是异步信号，不阻塞事件循环，适合 GUI 程序；`waitForReadyRead` 同步阻塞当前线程，适合无事件循环的工作线程或简单脚本，但在主线程使用会冻结 UI。
+
+
+详细解释：
+
+
+- `readyRead` 信号：QSerialPort 有数据时由事件循环触发，槽函数中调用 `readAll()` 读取，非阻塞。
+- `waitForReadyRead(timeout_ms)`：阻塞当前线程直到有数据或超时，返回 bool。
+- 在工作线程（有自己的事件循环）中可以用 `readyRead`，也可以用阻塞方式。
+- 主线程（UI 线程）：只能用 `readyRead` 异步方式。
+
+
+代码示例：
+
+
+```cpp
+// 推荐（异步）
+connect(port, &QSerialPort::readyRead, this, [this]() {
+    buffer_ += port_->readAll();
+    parseBuffer();
+});
+
+// 工作线程同步方式
+if (port->waitForReadyRead(1000)) {
+    QByteArray data = port->readAll();
+} else {
+    qWarning("Serial read timeout");
+}
+```
+
+
+常见坑/追问：
+
+
+- `readyRead` 不保证每次包含完整的一帧数据，必须有缓冲和分帧逻辑。
+- 追问：如何在工作线程中既用事件循环又处理串口？工作线程里跑 `exec()`，`QSerialPort` move 到该线程后 `readyRead` 正常触发。
+
+
+---
+
+> 💡 **面试追问**：线程池的核心参数如何调优？线程数设多少合适？
+
+
+
+### Q12: ⭐🔴 USB 设备的 VID/PID 是什么？如何在 Linux/Windows 下查询？
+
+
+A: 结论：VID（Vendor ID）是 USB-IF 分配给厂商的 16 位 ID，PID（Product ID）是厂商自行分配的设备 ID；两者合起来唯一标识一类 USB 设备，驱动匹配和枚举依赖这两个值。
+
+
+详细解释：
+
+
+- 格式：`VID:PID`，如 `0x0483:0x5740`（STM32 Virtual COM Port）。
+- Linux 查询：`lsusb`（列出所有 USB 设备），`lsusb -v -d VID:PID`（详细信息）。
+- Windows 查询：设备管理器 → 属性 → 详细信息 → 硬件 ID，或 `USBDeview` 工具。
+- Qt 中通过 `QSerialPortInfo::availablePorts()` 可获取串口的 VID/PID。
+- HID 设备用 `hidapi` 的 `hid_enumerate(VID, PID, ...)` 按 VID/PID 枚举。
+
+
+代码示例：
+
+
+```cpp
+// Qt 枚举串口 VID/PID
+for (const auto& info : QSerialPortInfo::availablePorts()) {
+    if (info.hasVendorIdentifier())
+        qDebug() << info.portName() << hex << info.vendorIdentifier()
+                 << info.productIdentifier();
+}
+```
+
+
+常见坑/追问：
+
+
+- 相同 VID/PID 可能对应同一厂商的不同产品版本，还需配合接口协议区分。
+- 追问：自研 USB 设备如何申请 VID？向 USB-IF 缴费申请（约 6000 USD），或购买 PID 子段（一些公司出售）。
+
+
+---
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q13: ⭐🟡 串口通信中流控（Flow Control）有什么作用？什么时候启用？
+
+
+A: 结论：流控防止发送方速度超过接收方处理能力导致数据丢失；硬件流控（RTS/CTS）最可靠，适合高速或不稳定链路；软件流控（XON/XOFF）通过特殊字节控制，适合不支持硬件流控的场景。
+
+
+详细解释：
+
+
+- **无流控**：适合低速（≤115200 baud）、接收方处理快的场景；FIFO 够用不溢出。
+- **硬件流控（RTS/CTS）**：接收方 FIFO 快满时拉低 CTS，发送方暂停；需要额外信号线，稳定可靠。
+- **软件流控（XON/XOFF = 0x11/0x13）**：通过特殊字节控制，但这两个字节不能出现在数据流中（二进制协议不可用）。
+- Qt 设置：`QSerialPort::setFlowControl(QSerialPort::HardwareControl)`。
+
+
+常见坑/追问：
+
+
+- 工业设备通信线缆常省略 RTS/CTS 接线，导致硬件流控实际失效，排查时先测量信号线。
+- 追问：115200 baud 大约等于多少 KB/s 数据吞吐？约 11.5KB/s（1 起始位 + 8 数据位 + 1 停止位 = 10 位/字节）。
+
+
+---
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q14: ⭐🔴 HID Report 解析中如何处理多字节字段（跨字节位域）？
+
+
+A: 结论：HID Report 的位字段可以跨字节边界；需要按 Report Descriptor 指定的 `Report Size`（位宽）和 `Report Count` 提取，用位操作手动拼合，或使用解析库（如 `hidapi` + 自写解析器）。
+
+
+详细解释：
+
+
+- Report Descriptor 描述每个字段的起始位和位宽（如 12 位轴值，跨两个字节）。
+- 提取方式：先确定字节偏移和位偏移，拼合多个字节后右移并掩码取值。
+- 符号扩展：有符号字段（如手柄摇杆）需做符号扩展（最高位为 1 则扩展）。
+- 实用工具：`hidrd`（HID Report Descriptor 解析）、`hid-tools`（Linux）。
+
+
+代码示例：
+
+
+```cpp
+// 从 report 中提取 12 位有符号值（从 bit 0 开始）
+int32_t extract12bit(const uint8_t* report, int bit_offset) {
+    int byte_off = bit_offset / 8;
+    int bit_off = bit_offset % 8;
+    uint32_t raw = (report[byte_off] | (report[byte_off+1] << 8)) >> bit_off;
+    raw &= 0xFFF;
+    // 符号扩展
+    if (raw & 0x800) raw |= 0xFFFFF000;
+    return (int32_t)raw;
+}
+```
+
+
+常见坑/追问：
+
+
+- 字节序：HID 默认小端序，多字节字段低地址存低字节。
+- 追问：如何验证 HID 解析是否正确？用 Wireshark（USBPcap）或 `usbmon` 抓包，对比原始数据和解析结果。
+
+
+---
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+
+
+### Q15: ⭐🔴 上位机如何可靠地检测 USB 设备热插拔并自动重连？
+
+
+A: 结论：Linux 用 `libudev` 监听 udev 事件；Windows 用 `WM_DEVICECHANGE` 消息；Qt 中可用 `QFileSystemWatcher` 监控 `/dev/` 目录变化（Linux），或封装 `libudev` 到 QSocketNotifier；检测到插入后自动重新枚举并打开设备。
+
+
+详细解释：
+
+
+- **Linux libudev**：创建 udev monitor，过滤 `usb`/`tty` subsystem，用 `poll`/`QSocketNotifier` 监听 fd，收到事件后获取动作（`add`/`remove`）和设备节点。
+- **Qt `QFileSystemWatcher`**：监控 `/dev/serial/by-id/` 或 `/dev/`，文件变化时重新枚举串口列表（简单但有延迟）。
+- **Windows**：`RegisterDeviceNotification` + 处理 `WM_DEVICECHANGE`/`DBT_DEVICEARRIVAL`。
+- 重连策略：检测到目标设备出现 → 等待 200-500ms（驱动初始化）→ 尝试打开 → 失败则重试有限次。
+
+
+代码示例：
+
+
+```cpp
+// Qt + QFileSystemWatcher 监控 /dev
+QFileSystemWatcher watcher;
+watcher.addPath("/dev");
+connect(&watcher, &QFileSystemWatcher::directoryChanged, this, [this](){
+    // 重新枚举串口列表
+    auto ports = QSerialPortInfo::availablePorts();
+    for (auto& p : ports) {
+        if (p.vendorIdentifier() == TARGET_VID && !connected_)
+            connectToDevice(p.portName());
+    }
+});
+```
+
+
+常见坑/追问：
+
+
+- 设备插入后立刻打开可能失败（驱动还未就绪），需加短暂延迟再重试。
+- 追问：如何区分同一型号的多个 USB 设备？使用设备序列号（`serialNumber()`）或 USB 路径（`/dev/serial/by-path/`）而非端口名称。
+
+---
+
+> 💡 **面试追问**：这个知识点在实际项目中怎么用？有没有遇到过相关 bug 或性能问题？
+
+---
+
+## 📊 本章统计
+
+| 指标 | 数量 |
+|------|------|
+| 总题目数 | 15 |
+| 🟢 入门 | 1 |
+| 🟡 进阶 | 9 |
+| 🔴 高难 | 5 |
